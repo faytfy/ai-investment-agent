@@ -1,0 +1,27 @@
+# Core
+anthropic>=0.40.0
+langgraph>=0.2.0
+langchain-anthropic>=0.3.0
+langchain-core>=0.3.0
+
+# Data
+yfinance>=0.2.40
+requests>=2.31.0
+feedparser>=6.0.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+
+# Database
+# SQLite is built-in; no extra dependency needed
+
+# Dashboard
+streamlit>=1.38.0
+plotly>=5.22.0
+
+# Scheduling
+apscheduler>=3.10.0
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic>=2.7.0
+pandas>=2.2.0
