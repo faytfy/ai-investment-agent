@@ -288,6 +288,9 @@ ai-investment-agent/
 │   │       ├── supply_chain.md
 │   │       ├── synthesizer.md
 │   │       └── risk_manager.md
+│   ├── utils/
+│   │   ├── __init__.py
+│   │   └── logger.py            # Structured logging
 │   ├── orchestrator/
 │   │   ├── __init__.py
 │   │   └── graph.py             # LangGraph orchestration

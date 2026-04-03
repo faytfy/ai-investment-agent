@@ -1,9 +1,9 @@
 # AI Investment Agent — Session Instructions
 
 ## Current State
-- **Phase:** 0 — Design & Setup (COMPLETE)
-- **Session:** 1 of 12
-- **Next Session:** 2 — Phase 1a (Data Pipeline: Price & Fundamentals)
+- **Phase:** 1a — Data Pipeline: Price & Fundamentals (COMPLETE)
+- **Session:** 2 of 12
+- **Next Session:** 3 — Phase 1b (Data: SEC EDGAR + News)
 
 ## Session Opening Protocol
 
@@ -14,6 +14,53 @@ Every new session, do this in order:
 3. Read `DESIGN.md` — architecture reference (sections relevant to current phase)
 4. Read only the source files relevant to this session's scope
 5. Confirm the plan with the user before writing code
+6. Run the plan through the **Plan Review Checklist** (below) before coding starts
+
+## Plan Review Checklist
+
+Every session plan must address these five areas. If an area isn't relevant, mark it N/A.
+
+### 1. Data Flow
+- What goes **in** to this session's code? (upstream inputs)
+- What comes **out**? (downstream consumers)
+- Are the interfaces typed with Pydantic models?
+
+### 2. Failure Modes
+- What external dependencies can fail? (APIs, files, DB)
+- What happens when they do? (retry, skip, error?)
+- Can one failure cascade and break everything?
+
+### 3. Validation
+- Where does untrusted data enter? (user input, API responses)
+- What validation exists at that boundary?
+- What does invalid data look like, and where does it go?
+
+### 4. Testing Strategy
+- What are the contract tests? (does the interface match?)
+- What are the round-trip tests? (write → read → compare)
+- What are the edge cases? (empty data, missing fields, stale data)
+
+### 5. Performance
+- Any loops over network calls? (batch or parallelize)
+- Any unbounded data? (need pagination or limits)
+- Anything that blocks the user waiting? (need progress feedback)
+
+## Post-Coding Review Protocol
+
+After coding and tests pass, spawn two review agents in parallel:
+
+1. **Code Reviewer** (senior engineer) — reads all session files together. Checks:
+   - Do interfaces align across files?
+   - Type mismatches or contract violations?
+   - Missing error handling at boundaries?
+   - Anything that'll break downstream consumers in future sessions?
+
+2. **Test Reviewer** (QA engineer) — reads tests against source. Checks:
+   - Are edge cases covered?
+   - Untested code paths?
+   - Do assertions verify meaningful behavior, not just "doesn't crash"?
+
+Then: fix anything flagged → re-run tests → proceed to session close.
 
 ## Session Closing Protocol
 

@@ -46,3 +46,39 @@ Build:
 
 ### Deviations from Original Plan
 - None — on track
+
+---
+
+## Session 2 — Phase 1a: Data Pipeline (Price & Fundamentals)
+
+### Status: COMPLETE
+
+### Built
+- `src/utils/logger.py` — structured logging with timed fetch context manager
+- `src/data/models.py` — Pydantic models (StockInfo, PriceBar, PriceHistory, FundamentalsSnapshot) with validators
+- `src/db/schema.py` — SQLite schema (stocks, prices, fundamentals, analysis_reports)
+- `src/db/operations.py` — full CRUD: init_db, upsert/get prices, upsert/get fundamentals, save/get reports
+- `src/data/price.py` — yfinance price fetcher with retry, per-ticker isolation, validation
+- `src/data/fundamentals.py` — yfinance fundamentals fetcher with retry, per-ticker isolation
+- `tests/test_data.py` — 36 tests (model validation, DB round-trips, edge cases, yfinance integration)
+
+### Key Decisions
+- JSON blob for fundamentals in DB (yfinance fields vary by ticker)
+- tier=0 for watch-only stocks (allows StockInfo to represent all stocks)
+- All functions return Pydantic models at boundaries, not raw dicts
+- Integration tests hit real yfinance (no mocks)
+
+### Deviations
+- Added `src/utils/` directory (not in original DESIGN.md structure) for logger
+- Post-coding review process caught 3 critical bugs (tier mismatch, watch-only filter logic, redundant imports) — all fixed before commit
+
+### Open Blockers
+- None
+
+### Next Session (Session 3 — Phase 1b)
+**Scope:** Data Pipeline — SEC EDGAR + News
+- `src/data/edgar.py` — SEC EDGAR filing parser
+- `src/data/news.py` — News/RSS integration
+- Tests for both
+
+**Files to read at session start:** `CLAUDE.md`, `PROGRESS.md`, `DESIGN.md` (sections 4-6), `src/data/models.py`, `src/config.py`
