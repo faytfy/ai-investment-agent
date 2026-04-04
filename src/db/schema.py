@@ -50,6 +50,42 @@ CREATE TABLE IF NOT EXISTS analysis_reports (
 
 CREATE INDEX IF NOT EXISTS idx_reports_ticker_agent
     ON analysis_reports(ticker, agent_name, date DESC);
+
+CREATE TABLE IF NOT EXISTS filings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker TEXT NOT NULL,
+    cik TEXT NOT NULL,
+    accession_number TEXT NOT NULL UNIQUE,
+    filing_type TEXT NOT NULL,
+    filed_date TEXT NOT NULL,
+    report_date TEXT,
+    title TEXT,
+    filing_url TEXT NOT NULL,
+    content_json TEXT,
+    fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (ticker) REFERENCES stocks(ticker)
+);
+
+CREATE INDEX IF NOT EXISTS idx_filings_ticker_type
+    ON filings(ticker, filing_type, filed_date DESC);
+
+CREATE TABLE IF NOT EXISTS news_articles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker TEXT NOT NULL,
+    title TEXT NOT NULL,
+    source TEXT,
+    url TEXT,
+    published_at TEXT NOT NULL,
+    summary TEXT,
+    fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (ticker) REFERENCES stocks(ticker)
+);
+
+CREATE INDEX IF NOT EXISTS idx_news_ticker_date
+    ON news_articles(ticker, published_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_news_dedup
+    ON news_articles(ticker, title, published_at);
 """
 
 

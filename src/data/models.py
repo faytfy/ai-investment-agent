@@ -1,6 +1,7 @@
 """Pydantic data models for the AI Investment Agent."""
 
 from datetime import date, datetime
+from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -134,3 +135,88 @@ class FundamentalsSnapshot(BaseModel):
     def has_analyst_data(self) -> bool:
         """Whether we have analyst target data."""
         return self.analyst_target_mean is not None
+
+
+# --- SEC EDGAR models ---
+
+
+class FilingType(str, Enum):
+    """SEC filing types we track."""
+
+    TEN_K = "10-K"
+    TEN_Q = "10-Q"
+    EIGHT_K = "8-K"
+
+
+class FilingInfo(BaseModel):
+    """Metadata about a single SEC filing."""
+
+    ticker: str
+    cik: str
+    accession_number: str
+    filing_type: FilingType
+    filed_date: date
+    report_date: Optional[date] = None
+    title: Optional[str] = None
+    filing_url: str
+
+    @field_validator("cik")
+    @classmethod
+    def cik_must_be_numeric(cls, v: str) -> str:
+        if not v.strip().isdigit():
+            raise ValueError(f"CIK must be numeric, got '{v}'")
+        return v.strip().lstrip("0") or "0"
+
+
+class FilingContent(BaseModel):
+    """Parsed content from an SEC filing.
+
+    Stores key sections extracted from 10-K/10-Q filings as plain text.
+    Sections may be None if not found or not applicable to the filing type.
+    """
+
+    accession_number: str
+    filing_type: FilingType
+    business: Optional[str] = None  # Item 1 (10-K)
+    risk_factors: Optional[str] = None  # Item 1A
+    mda: Optional[str] = None  # Management Discussion & Analysis (Item 7 / Item 2)
+    financial_summary: Optional[str] = None  # Brief extracted financial highlights
+    raw_text_length: int = 0  # Total chars of raw filing, for reference
+
+    @property
+    def has_content(self) -> bool:
+        return any([self.business, self.risk_factors, self.mda])
+
+
+# --- News models ---
+
+
+class NewsArticle(BaseModel):
+    """A single news article."""
+
+    ticker: str
+    title: str
+    source: Optional[str] = None
+    url: Optional[str] = None
+    published_at: datetime
+    summary: Optional[str] = None
+
+    @field_validator("title")
+    @classmethod
+    def title_not_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Article title cannot be empty")
+        return v
+
+
+class NewsFeed(BaseModel):
+    """Collection of news articles for a ticker."""
+
+    ticker: str
+    articles: list[NewsArticle]
+    last_updated: datetime = Field(default_factory=datetime.now)
+
+    @property
+    def is_empty(self) -> bool:
+        return len(self.articles) == 0

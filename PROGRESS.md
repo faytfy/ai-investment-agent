@@ -82,3 +82,50 @@ Build:
 - Tests for both
 
 **Files to read at session start:** `CLAUDE.md`, `PROGRESS.md`, `DESIGN.md` (sections 4-6), `src/data/models.py`, `src/config.py`
+
+---
+
+## Session 3 — Phase 1b: Data Pipeline (SEC EDGAR + News)
+
+### Status: COMPLETE
+
+### Built
+- `src/data/models.py` — Added `FilingType` enum, `FilingInfo`, `FilingContent`, `NewsArticle`, `NewsFeed` Pydantic models
+- `src/db/schema.py` — Added `filings` table (with accession_number unique constraint, content_json) and `news_articles` table (with dedup index on ticker+title+published_at)
+- `src/db/operations.py` — Added `upsert_filing`, `get_filings`, `get_filing_content`, `upsert_news`, `get_news` operations
+- `src/data/edgar.py` — SEC EDGAR fetcher: CIK lookup (cached), filing list from submissions API, filing content extraction (HTML→text, section parsing for Items 1/1A/7)
+- `src/data/news.py` — RSS news fetcher: Yahoo Finance + Google News RSS, date parsing, HTML cleaning, deduplication
+- `tests/test_edgar_news.py` — 55 tests (model validation, DB round-trips, HTML parsing, RSS parsing, section extraction, integration tests against real EDGAR + RSS)
+
+### Key Decisions
+- Filing content stored as JSON blob (same pattern as fundamentals)
+- Section extraction uses regex on plain text (best-effort; some filings have non-standard formatting)
+- All news dates normalized to naive datetimes (no timezone mixing)
+- `upsert_filing` preserves existing content when re-upserting without content (prevents data loss on failed re-fetch)
+- CIK cache loaded once per process with retry storm prevention
+- RSS-only for news (free, no API keys needed); sentiment scoring deferred to Sentiment Agent (Session 6)
+
+### Bugs Found & Fixed During Review
+1. `upsert_news` count bug — was using cumulative `conn.total_changes` instead of per-row `cursor.rowcount`
+2. Timezone mixing — `parsedate_to_datetime` returns tz-aware, `datetime.now()` is naive; fixed by stripping tzinfo
+3. Content data loss — `INSERT OR REPLACE` would overwrite existing content_json with NULL; fixed with check-then-update logic
+4. CIK retry storm — empty cache caused repeated full-download attempts; fixed with `_cik_cache_loaded` flag
+
+### Deviations
+- None — on track with roadmap
+
+### Open Blockers
+- None
+
+### Testing Debt
+- **No E2E tests yet.** Unit + integration tests cover individual functions and DB round-trips, but the batch orchestrators (`update_all_filings`, `update_all_news`, `update_all_prices`) have no coverage. When the single agent MVP ties the full pipeline together (Session 4+), add E2E tests that run: fetch data → store in DB → agent reads from DB → produces report. This is the right time because E2E tests need a downstream consumer to be meaningful.
+
+### Next Session (Session 4 — Phase 2)
+**Scope:** Single Agent MVP
+- Build a single Claude agent that reads price, fundamentals, and filing data
+- Produces structured buy/sell/hold reports (JSON)
+- Agent system prompt + report format
+- Tests for agent output validation
+- **E2E test:** Full pipeline for 1 ticker (fetch → store → agent reads → report) — addresses testing debt from Sessions 2-3
+
+**Files to read at session start:** `CLAUDE.md`, `PROGRESS.md`, `DESIGN.md` (sections 4, 7), `src/data/models.py`, `src/config.py`, `src/db/operations.py`

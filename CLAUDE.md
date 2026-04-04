@@ -1,9 +1,9 @@
 # AI Investment Agent — Session Instructions
 
 ## Current State
-- **Phase:** 1a — Data Pipeline: Price & Fundamentals (COMPLETE)
-- **Session:** 2 of 12
-- **Next Session:** 3 — Phase 1b (Data: SEC EDGAR + News)
+- **Phase:** 1b — Data Pipeline: SEC EDGAR + News (COMPLETE)
+- **Session:** 3 of 12
+- **Next Session:** 4 — Phase 2 (Single Agent MVP)
 
 ## Session Opening Protocol
 

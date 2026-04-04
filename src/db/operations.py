@@ -8,7 +8,17 @@ from typing import Optional
 import pandas as pd
 
 from src.config import DB_PATH, WATCH_ONLY, WATCHLIST
-from src.data.models import FundamentalsSnapshot, PriceBar, PriceHistory, StockInfo
+from src.data.models import (
+    FundamentalsSnapshot,
+    FilingContent,
+    FilingInfo,
+    FilingType,
+    NewsArticle,
+    NewsFeed,
+    PriceBar,
+    PriceHistory,
+    StockInfo,
+)
 from src.db.schema import create_tables
 from src.utils.logger import get_logger
 
@@ -203,6 +213,203 @@ def save_report(
         logger.info(f"Saved {agent_name} report for {ticker}: {signal} ({confidence:.2f})")
     finally:
         conn.close()
+
+
+# --- Filing operations ---
+
+
+def upsert_filing(
+    filing: FilingInfo,
+    content: Optional[FilingContent] = None,
+    db_path: str = DB_PATH,
+) -> None:
+    """Store a filing's metadata and optional parsed content.
+
+    If the filing already exists (by accession_number) and content is None,
+    the existing content_json is preserved (not overwritten with NULL).
+    """
+    conn = get_connection(db_path)
+    try:
+        content_json = content.model_dump_json() if content else None
+
+        # Check if filing already exists
+        existing = conn.execute(
+            "SELECT content_json FROM filings WHERE accession_number = ?",
+            (filing.accession_number,),
+        ).fetchone()
+
+        if existing:
+            # Update metadata; only overwrite content if new content is provided
+            if content_json:
+                conn.execute(
+                    "UPDATE filings SET ticker=?, cik=?, filing_type=?, filed_date=?, "
+                    "report_date=?, title=?, filing_url=?, content_json=? "
+                    "WHERE accession_number=?",
+                    (
+                        filing.ticker, filing.cik, filing.filing_type.value,
+                        filing.filed_date.isoformat(),
+                        filing.report_date.isoformat() if filing.report_date else None,
+                        filing.title, filing.filing_url, content_json,
+                        filing.accession_number,
+                    ),
+                )
+            else:
+                conn.execute(
+                    "UPDATE filings SET ticker=?, cik=?, filing_type=?, filed_date=?, "
+                    "report_date=?, title=?, filing_url=? "
+                    "WHERE accession_number=?",
+                    (
+                        filing.ticker, filing.cik, filing.filing_type.value,
+                        filing.filed_date.isoformat(),
+                        filing.report_date.isoformat() if filing.report_date else None,
+                        filing.title, filing.filing_url,
+                        filing.accession_number,
+                    ),
+                )
+        else:
+            conn.execute(
+                "INSERT INTO filings "
+                "(ticker, cik, accession_number, filing_type, filed_date, "
+                "report_date, title, filing_url, content_json) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    filing.ticker, filing.cik, filing.accession_number,
+                    filing.filing_type.value, filing.filed_date.isoformat(),
+                    filing.report_date.isoformat() if filing.report_date else None,
+                    filing.title, filing.filing_url, content_json,
+                ),
+            )
+        conn.commit()
+        logger.info(f"Stored filing {filing.filing_type.value} for {filing.ticker} ({filing.accession_number})")
+    finally:
+        conn.close()
+
+
+def get_filings(
+    ticker: str,
+    filing_type: Optional[FilingType] = None,
+    limit: int = 10,
+    db_path: str = DB_PATH,
+) -> list[FilingInfo]:
+    """Get recent filings for a ticker, optionally filtered by type."""
+    conn = get_connection(db_path)
+    try:
+        query = "SELECT ticker, cik, accession_number, filing_type, filed_date, report_date, title, filing_url FROM filings WHERE ticker = ?"
+        params: list = [ticker]
+
+        if filing_type:
+            query += " AND filing_type = ?"
+            params.append(filing_type.value)
+
+        query += " ORDER BY filed_date DESC LIMIT ?"
+        params.append(limit)
+
+        rows = conn.execute(query, params).fetchall()
+        return [
+            FilingInfo(
+                ticker=r["ticker"],
+                cik=r["cik"],
+                accession_number=r["accession_number"],
+                filing_type=FilingType(r["filing_type"]),
+                filed_date=date.fromisoformat(r["filed_date"]),
+                report_date=date.fromisoformat(r["report_date"]) if r["report_date"] else None,
+                title=r["title"],
+                filing_url=r["filing_url"],
+            )
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
+def get_filing_content(accession_number: str, db_path: str = DB_PATH) -> Optional[FilingContent]:
+    """Get the parsed content for a specific filing."""
+    conn = get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT content_json FROM filings WHERE accession_number = ?",
+            (accession_number,),
+        ).fetchone()
+        if row is None or row["content_json"] is None:
+            return None
+        return FilingContent.model_validate_json(row["content_json"])
+    finally:
+        conn.close()
+
+
+# --- News operations ---
+
+
+def upsert_news(articles: list[NewsArticle], db_path: str = DB_PATH) -> int:
+    """Store news articles, deduplicating by (ticker, title, published_at). Returns count stored."""
+    if not articles:
+        return 0
+
+    conn = get_connection(db_path)
+    try:
+        count = 0
+        for article in articles:
+            try:
+                cursor = conn.execute(
+                    "INSERT OR IGNORE INTO news_articles "
+                    "(ticker, title, source, url, published_at, summary) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        article.ticker,
+                        article.title,
+                        article.source,
+                        article.url,
+                        article.published_at.isoformat(),
+                        article.summary,
+                    ),
+                )
+                if cursor.rowcount > 0:
+                    count += 1
+            except sqlite3.IntegrityError:
+                pass  # duplicate, skip
+        conn.commit()
+        logger.info(f"Stored {count} news articles")
+        return count
+    finally:
+        conn.close()
+
+
+def get_news(
+    ticker: str,
+    limit: int = 50,
+    since: Optional[datetime] = None,
+    db_path: str = DB_PATH,
+) -> list[NewsArticle]:
+    """Get recent news articles for a ticker."""
+    conn = get_connection(db_path)
+    try:
+        query = "SELECT ticker, title, source, url, published_at, summary FROM news_articles WHERE ticker = ?"
+        params: list = [ticker]
+
+        if since:
+            query += " AND published_at >= ?"
+            params.append(since.isoformat())
+
+        query += " ORDER BY published_at DESC LIMIT ?"
+        params.append(limit)
+
+        rows = conn.execute(query, params).fetchall()
+        return [
+            NewsArticle(
+                ticker=r["ticker"],
+                title=r["title"],
+                source=r["source"],
+                url=r["url"],
+                published_at=datetime.fromisoformat(r["published_at"]),
+                summary=r["summary"],
+            )
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
+# --- Analysis report operations (for future sessions) ---
 
 
 def get_reports(
