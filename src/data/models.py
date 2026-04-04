@@ -220,3 +220,50 @@ class NewsFeed(BaseModel):
     @property
     def is_empty(self) -> bool:
         return len(self.articles) == 0
+
+
+# --- Analysis report models ---
+
+
+class Signal(str, Enum):
+    """Investment signal."""
+
+    BULLISH = "bullish"
+    BEARISH = "bearish"
+    NEUTRAL = "neutral"
+
+
+class AnalysisReport(BaseModel):
+    """Structured buy/sell/hold report from an analyst agent.
+
+    Matches the report schema from DESIGN.md Section 4.2.
+    """
+
+    ticker: str
+    agent: str = "general_analyst"
+    report_date: date = Field(default_factory=date.today)
+    signal: Signal
+    confidence: float = Field(ge=0.0, le=1.0)
+    thesis: str
+    key_metrics: dict[str, Optional[float]] = Field(default_factory=dict)
+    bull_case: str
+    bear_case: str
+    risks: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+    thesis_change: bool = False
+    thesis_change_reason: Optional[str] = None
+
+    @field_validator("thesis", "bull_case", "bear_case")
+    @classmethod
+    def text_not_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Text field cannot be empty")
+        return v
+
+    @field_validator("risks", "evidence")
+    @classmethod
+    def list_not_empty(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("Must provide at least one item")
+        return v

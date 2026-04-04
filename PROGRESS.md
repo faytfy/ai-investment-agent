@@ -129,3 +129,47 @@ Build:
 - **E2E test:** Full pipeline for 1 ticker (fetch → store → agent reads → report) — addresses testing debt from Sessions 2-3
 
 **Files to read at session start:** `CLAUDE.md`, `PROGRESS.md`, `DESIGN.md` (sections 4, 7), `src/data/models.py`, `src/config.py`, `src/db/operations.py`
+
+---
+
+## Session 4 — Phase 2: Single Agent MVP
+
+### Status: COMPLETE
+
+### Built
+- `src/data/models.py` — Added `Signal` enum, `AnalysisReport` Pydantic model with field validation (signal, confidence bounds, non-empty text/list validators)
+- `src/agents/prompts/analyst.md` — System prompt for the general analyst (analysis framework, output rules, guidelines)
+- `src/agents/analyst.py` — Full agent logic: data gathering from DB, context assembly (price/fundamentals/filings/news), Claude API call with tool_use for structured output, report validation and saving
+- `src/agents/runner.py` — CLI runner (`python -m src.agents.runner TSM` or `--all`) with pretty-print output and summary table
+- `tests/test_agent.py` — 22 tests: model validation (13), context building (6), DB round-trips (2), E2E with real API (1, skipped without key)
+
+### Key Decisions
+- **Tool_use for structured output** — Forces Claude to return JSON matching our schema, instead of hoping for valid JSON in free-form text
+- **Anthropic SDK directly** (not LangGraph) — Single agent, one API call; LangGraph orchestration deferred to Phase 3c
+- **Context assembled in Python** — All data pre-fetched from DB and formatted as text, not live tool calls during analysis
+- **`report_date` field name** — Renamed from `date` to avoid Pydantic clash with the `date` type import
+- **db_path threading** — All data fetchers accept optional db_path for testability
+
+### Bugs Found & Fixed During Review
+1. **db_path not threaded to filings/news** — `build_context()` only passed db_path to prices/fundamentals, not filings/news; fixed by threading kwargs through all formatters
+2. **No error handling on malformed Claude response** — Direct dict access to tool output would crash on missing keys; wrapped in try/except with logging
+3. **`date` field name clash** — Pydantic errored because `date: date` shadowed the type import; renamed to `report_date`
+
+### Deviations
+- None — on track with roadmap
+
+### Open Blockers
+- None
+
+### Testing Note
+- E2E test (`TestE2EAnalysis`) is in place but skipped without `ANTHROPIC_API_KEY` in environment. To run: `ANTHROPIC_API_KEY=sk-... python -m pytest tests/test_agent.py -k "E2E" -v`
+- Batch orchestrator E2E tests (testing debt from Sessions 2-3) still deferred — the E2E test here covers the agent path but not the data fetch → store → agent pipeline. Best addressed when the full multi-agent pipeline exists (Session 7).
+
+### Next Session (Session 5 — Phase 3a)
+**Scope:** Fundamental Analyst Agent
+- Refactor `general_analyst` into a dedicated `fundamental_analyst` with deeper financial analysis
+- Standalone agent with structured report matching DESIGN.md Section 4.2
+- Prompt tuned for financial ratios, DCF, valuation comparisons
+- Tests for fundamental-specific analysis quality
+
+**Files to read at session start:** `CLAUDE.md`, `PROGRESS.md`, `DESIGN.md` (sections 4, 7), `src/agents/analyst.py`, `src/agents/prompts/analyst.md`, `src/data/models.py`
