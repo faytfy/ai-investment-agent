@@ -1,9 +1,9 @@
 # AI Investment Agent — Session Instructions
 
 ## Current State
-- **Phase:** 3b — Sentiment + Supply Chain Agents (COMPLETE)
-- **Session:** 6 of 12
-- **Next Session:** 7 — Phase 3c (Synthesizer + LangGraph Orchestration)
+- **Phase:** 3c — Synthesizer + LangGraph Orchestration (COMPLETE)
+- **Session:** 7 of 12
+- **Next Session:** 8 — Phase 4 (Risk Manager)
 
 ## Session Opening Protocol
 

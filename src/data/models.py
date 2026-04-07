@@ -267,3 +267,40 @@ class AnalysisReport(BaseModel):
         if not v:
             raise ValueError("Must provide at least one item")
         return v
+
+
+class SynthesisReport(BaseModel):
+    """Unified investment memo produced by the Research Synthesizer.
+
+    Reads all analyst reports for a ticker and produces a single
+    recommendation with agreement/disagreement analysis.
+    Matches DESIGN.md Section 4.2 unified memo schema.
+    """
+
+    ticker: str
+    report_date: date = Field(default_factory=date.today)
+    overall_signal: Signal
+    overall_confidence: float = Field(ge=0.0, le=1.0)
+    analyst_agreement: str  # e.g., "2/3 bullish, 1/3 neutral"
+    disagreement_flags: list[str] = Field(default_factory=list)
+    bull_case_summary: str
+    bear_case_summary: str
+    recommendation: str  # e.g., "HOLD — thesis intact, no action needed"
+    thesis_changed_since_last: bool = False
+    key_watch_items: list[str] = Field(default_factory=list)
+    analyst_reports_used: list[str] = Field(default_factory=list)  # agent names
+
+    @field_validator("bull_case_summary", "bear_case_summary", "recommendation", "analyst_agreement")
+    @classmethod
+    def synth_text_not_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Text field cannot be empty")
+        return v
+
+    @field_validator("key_watch_items")
+    @classmethod
+    def watch_items_not_empty(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("Must provide at least one watch item")
+        return [item.strip() for item in v if item.strip()]

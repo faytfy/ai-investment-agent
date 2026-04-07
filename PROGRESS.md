@@ -268,3 +268,55 @@ Build:
 - Tests for synthesizer + orchestration
 
 **Files to read at session start:** `CLAUDE.md`, `PROGRESS.md`, `DESIGN.md` (sections 4, 7), `src/agents/base.py`, `src/agents/runner.py`, `src/data/models.py`, `src/agents/fundamental.py` (pattern reference)
+
+---
+
+## Session 7 — Phase 3c: Synthesizer + LangGraph Orchestration
+
+### Status: COMPLETE
+
+### Built
+- `src/data/models.py` — Added `SynthesisReport` Pydantic model: overall_signal, overall_confidence, analyst_agreement, disagreement_flags, bull/bear case summaries, recommendation, thesis_changed_since_last, key_watch_items, analyst_reports_used
+- `src/agents/synthesizer.py` — Research Synthesizer agent: `SYNTHESIS_TOOL` schema, `build_synthesis_context()` (formats analyst reports for Claude), `_load_analyst_reports_from_db()` (loads latest report per analyst), `run_synthesizer()` (Claude Opus API call), `analyze_ticker()` (standalone entry point)
+- `src/agents/prompts/synthesizer.md` — Synthesizer system prompt: 5-section analysis framework (Signal Synthesis, Bull Case, Bear Case, Recommendation, Key Watch Items), confidence calibration, fundamentals > sentiment weighting directive
+- `src/orchestrator/graph.py` — LangGraph StateGraph: `OrchestratorState` (Pydantic model with `Annotated[list, operator.add]` reducers), 3 analyst nodes running in parallel via fan-out edges, synthesizer fan-in node, `build_graph()` compiler, `orchestrate()` entry point
+- `src/agents/runner.py` — Added `synthesizer` to `AGENT_REGISTRY`, added `--orchestrate` flag with `run_orchestrated()` (single ticker) and `run_all_orchestrated()` (all tickers)
+- `tests/test_synthesizer.py` — 33 tests: model validation (11 including boundary), context building (8), DB round-trips (5 including corrupted JSON), tool schema (2), orchestrator (7 including partial failure, full failure, synthesizer failure), E2E (1, skipped without key)
+
+### Key Decisions
+- **Claude Opus for synthesizer** — Per DESIGN.md Section 4.4: harder reasoning task (weighing conflicting signals) warrants the stronger model. Config: `SYNTHESIZER_MODEL = "claude-opus-4-6"`
+- **Separate SYNTHESIS_TOOL schema** — Different from analyst REPORT_TOOL. Synthesizer output has different fields (analyst_agreement, disagreement_flags, recommendation text, etc.)
+- **`analyst_reports_used` is computed, not from Claude** — Populated from input reports, not in tool schema. Gives downstream consumers a way to detect degraded synthesis (1-2 of 3 analysts).
+- **Graceful degradation** — Orchestrator proceeds with 1-2 analyst reports if one fails. Synthesizer prompt handles partial data. Zero reports → no synthesis attempted.
+- **Reuse `analysis_reports` table** — Synthesis reports saved with `agent_name="research_synthesizer"`, same table as analyst reports. No schema migration needed.
+- **LangGraph StateGraph with Pydantic** — `OrchestratorState` uses `Annotated[list, operator.add]` for accumulating analyst reports from parallel nodes.
+
+### Bugs Found & Fixed During Review
+1. **`key_watch_items` validator vs tool schema mismatch** — Pydantic model required non-empty list, but tool schema didn't enforce it. Claude could return empty array → validation failure. Fixed by adding `minItems: 1` to tool schema.
+2. **Fragile state reconstruction from LangGraph** — `OrchestratorState(**result)` could fail if LangGraph adds internal keys. Fixed by filtering to known fields before construction.
+
+### Review Notes (not fixed, acceptable)
+- `analyst_reports_used` not in tool schema — by design, computed from input reports
+- Synthesizer runs with partial data (1-2 of 3 analysts) — acceptable, field `analyst_reports_used` documents coverage
+- Prompt path not validated at import time — same pattern as all other agents
+- No timeout on individual analyst nodes — LangGraph doesn't natively support per-node timeouts; API call timeout is the effective bound
+
+### Deviations
+- None — on track with roadmap
+
+### Open Blockers
+- None
+
+### Testing Note
+- 216 total tests pass (all sessions), 5 E2E skipped without API key
+- All 4 agents (fundamental, sentiment, supply chain, synthesizer) + orchestrator tested
+- Orchestrator tests use mocked API calls to verify graph wiring and state management
+
+### Next Session (Session 8 — Phase 4)
+**Scope:** Risk Manager
+- Build `src/agents/risk_manager.py` — Portfolio-level risk analysis agent
+- Produces portfolio risk report per DESIGN.md Section 4.2 (sector exposure, concentration warnings, correlation flags, position sizing)
+- Reads all latest synthesis reports across the watchlist
+- Tests for risk manager
+
+**Files to read at session start:** `CLAUDE.md`, `PROGRESS.md`, `DESIGN.md` (sections 4, 7), `src/agents/synthesizer.py`, `src/orchestrator/graph.py`, `src/data/models.py`, `src/config.py`
