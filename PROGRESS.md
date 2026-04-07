@@ -219,3 +219,52 @@ Build:
 - Tests for both
 
 **Files to read at session start:** `CLAUDE.md`, `PROGRESS.md`, `DESIGN.md` (sections 4, 7), `src/agents/base.py`, `src/agents/fundamental.py`, `src/agents/runner.py`, `src/data/models.py`
+
+---
+
+## Session 6 — Phase 3b: Sentiment + Supply Chain Agents
+
+### Status: COMPLETE
+
+### Built
+- `src/agents/sentiment.py` — Sentiment analyst agent: `_compute_news_metrics()` (volume, recency distribution, source diversity, volume interpretation), `build_sentiment_context()` (standard context + price momentum + news metrics), `analyze_ticker()` entry point
+- `src/agents/prompts/sentiment.md` — Sentiment-first system prompt: 5-section analysis framework (News Flow, Filing Language & Management Tone, Market Narrative & Positioning, Sentiment Inflection Detection, Risk Sentiment), confidence calibration, sentiment != fundamentals directive
+- `src/agents/supply_chain.py` — Supply chain analyst agent: `_build_layer_context()` (tier, layer, peer identification from WATCHLIST), `_compute_supply_chain_metrics()` (capex intensity, gross margin as pricing power proxy, revenue growth as demand signal, FCF margin, leverage capacity), `build_supply_chain_context()` (standard context + layer position + supply chain metrics), `analyze_ticker()` entry point
+- `src/agents/prompts/supply_chain.md` — Supply chain positioning system prompt: 6-section analysis framework (Bottleneck Assessment, Demand Visibility, Competitive Moat Durability, Capex & Capacity Analysis, Supply Chain Risk Factors, Cross-Layer Dependencies), AI supply chain layer map, position > price directive
+- `src/agents/runner.py` — Added `sentiment` and `supply_chain` to `AGENT_REGISTRY`
+- `tests/test_sentiment.py` — 17 tests: news metrics (6), context building (6 including boundary cases for 5/3 price bars), report model (2), DB round-trips (2), E2E (1, skipped without key)
+- `tests/test_supply_chain.py` — 25 tests: layer context (6), supply chain metrics (12 including edge cases), context building (4), report model (2), DB round-trips (2), E2E (1, skipped without key)
+
+### Key Decisions
+- **Sentiment context enrichment** — News volume metrics (30d/7d/3d counts), recency, source diversity, and volume interpretation labels (SURGING/MODERATE/QUIET/NONE) give the LLM structured sentiment signals beyond raw article text.
+- **Supply chain layer context** — Injects portfolio tier, layer position, and same-layer peer names directly into context. LLM can compare the stock's position relative to peers without needing separate data.
+- **Supply chain metrics with interpretive labels** — Capex intensity, gross margin, revenue growth, and leverage each include threshold-based labels (e.g., "Heavy capacity investment", "Strong pricing power"). Guides the LLM's interpretation without prescribing conclusions.
+- **Price momentum in sentiment context** — 5d/20d momentum added as a cross-reference for the sentiment agent. Lets it flag sentiment-price divergences.
+- **Same `run_agent()` pipeline** — Both new agents plug into the existing shared pipeline. No changes to `base.py` or `models.py` needed.
+
+### Bugs Found & Fixed During Review
+1. **No bugs in source code** — Code reviewer confirmed all context builder signatures match `Callable[[str, Optional[str]], str]`, all guards against IndexError/division-by-zero are in place.
+2. **Added boundary tests** — Test reviewer flagged missing coverage for exactly 5 price bars and fewer than 5 bars in sentiment momentum. Added `test_context_with_exactly_5_bars` and `test_context_with_fewer_than_5_bars` — both pass, confirming guards work.
+
+### Review Notes (not fixed, acceptable)
+- Hardcoded tier labels in `supply_chain.py` — consistent with existing pattern, not worth extracting to config at this stage
+- Prompt path existence not validated at import time — same as fundamental agent; `run_agent()` will raise clear FileNotFoundError if path is wrong
+
+### Deviations
+- None — on track with roadmap
+
+### Open Blockers
+- None
+
+### Testing Note
+- 183 total tests pass (all sessions), 4 E2E skipped without API key
+- All 3 analyst agents (fundamental, sentiment, supply chain) now follow the same pattern and share the same pipeline
+
+### Next Session (Session 7 — Phase 3c)
+**Scope:** Synthesizer + LangGraph Orchestration
+- Build `src/agents/synthesizer.py` — Research Synthesizer that reads all 3 analyst reports and produces unified memo
+- Build `src/orchestrator/graph.py` — LangGraph wiring to run analysts in parallel, then synthesize
+- New Pydantic model for unified synthesis report (per DESIGN.md Section 4.2)
+- Tests for synthesizer + orchestration
+
+**Files to read at session start:** `CLAUDE.md`, `PROGRESS.md`, `DESIGN.md` (sections 4, 7), `src/agents/base.py`, `src/agents/runner.py`, `src/data/models.py`, `src/agents/fundamental.py` (pattern reference)

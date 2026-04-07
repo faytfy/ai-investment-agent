@@ -21,6 +21,8 @@ logger = get_logger("runner")
 AGENT_REGISTRY = {
     "general": ("src.agents.analyst", "analyze_ticker"),
     "fundamental": ("src.agents.fundamental", "analyze_ticker"),
+    "sentiment": ("src.agents.sentiment", "analyze_ticker"),
+    "supply_chain": ("src.agents.supply_chain", "analyze_ticker"),
 }
 
 
