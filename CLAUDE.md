@@ -1,9 +1,9 @@
 # AI Investment Agent — Session Instructions
 
 ## Current State
-- **Phase:** 2 — Single Agent MVP (COMPLETE)
-- **Session:** 4 of 12
-- **Next Session:** 5 — Phase 3a (Fundamental Analyst Agent)
+- **Phase:** 3a — Fundamental Analyst Agent (COMPLETE)
+- **Session:** 5 of 12
+- **Next Session:** 6 — Phase 3b (Sentiment + Supply Chain Agents)
 
 ## Session Opening Protocol
 

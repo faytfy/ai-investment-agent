@@ -173,3 +173,49 @@ Build:
 - Tests for fundamental-specific analysis quality
 
 **Files to read at session start:** `CLAUDE.md`, `PROGRESS.md`, `DESIGN.md` (sections 4, 7), `src/agents/analyst.py`, `src/agents/prompts/analyst.md`, `src/data/models.py`
+
+---
+
+## Session 5 — Phase 3a: Fundamental Analyst Agent
+
+### Status: COMPLETE
+
+### Built
+- `src/agents/base.py` — Extracted shared agent logic: context building (price, fundamentals, filings, news formatting), `REPORT_TOOL` schema, `run_agent()` generic pipeline, `build_standard_context_with_data()` (returns text + raw data to avoid double-fetch)
+- `src/agents/fundamental.py` — Fundamental analyst agent: `_compute_derived_metrics()` (FCF yield, earnings yield, forward earnings yield, implied earnings growth, net debt, capex intensity, FCF conversion, 52-week range position, analyst upside, PEG assessment, EV/FCF), `build_fundamental_context()` (standard context + derived metrics section), `analyze_ticker()` entry point
+- `src/agents/prompts/fundamental.md` — Fundamentals-first system prompt: 6-section analysis framework (Growth, Profitability, Cash Flow, Valuation, Competitive Position, Filing Insights), confidence calibration guidance, explicit fundamentals > sentiment directive
+- `src/agents/analyst.py` — Refactored to delegate to `base.py`, re-exports for backward compat with existing tests, added `db_path` parameter for interface consistency
+- `src/agents/runner.py` — Added `--agent` flag with `AGENT_REGISTRY` for dynamic import; supports `general` (default) and `fundamental`
+- `tests/test_fundamental.py` — 28 tests: derived metrics (20 including edge cases), context building (3), model validation (2), DB round-trips (2), E2E (1, skipped without key)
+
+### Key Decisions
+- **`base.py` extraction** — Shared pipeline (`run_agent`) takes `agent_name`, `prompt_path`, and `context_builder` callable. Each specialized agent only needs to define its prompt and optionally a custom context builder.
+- **`build_standard_context_with_data()`** — Returns `(text, price_history, fundamentals)` tuple so fundamental agent can access raw data for derived metric computation without re-querying DB.
+- **Derived metrics enrichment** — Fundamental agent appends computed ratios (FCF yield, earnings yield, capex intensity, etc.) as a separate "Derived Financial Metrics" section. Gives the LLM richer data without modifying the shared context builder.
+- **Consistent `analyze_ticker` interface** — Both `analyst.py` and `fundamental.py` accept `(ticker, save, db_path)` for interface symmetry.
+
+### Bugs Found & Fixed During Review
+1. **Double data fetch** — `build_fundamental_context` was calling `build_standard_context` (which fetches from DB) then fetching fundamentals+prices again for derived metrics. Fixed by introducing `build_standard_context_with_data()` that returns raw data alongside text.
+2. **Unused imports in `fundamental.py`** — `format_fundamentals_section`, `format_price_section`, `get_stock_context`, `PriceBar` imported but unused. Cleaned up.
+3. **`analyst.py` missing `db_path`** — General analyst's `analyze_ticker` lacked `db_path` parameter, breaking interface symmetry with fundamental analyst. Added for consistency.
+4. **Weak test assertion** — `test_partial_data_graceful` had `assert X or len(result) > 0` which could never fail. Replaced with specific assertion.
+
+### Deviations
+- None — on track with roadmap
+
+### Open Blockers
+- None
+
+### Testing Note
+- 141 total tests pass (all sessions), 2 E2E skipped without API key
+- Code reviewer flagged `key_metrics: dict[str, Optional[float]]` type may reject string values from Claude. Not fixed this session — the existing general analyst has worked fine with this constraint. Will revisit if it causes real failures.
+
+### Next Session (Session 6 — Phase 3b)
+**Scope:** Sentiment + Supply Chain Agents
+- Build `src/agents/sentiment.py` — Sentiment analyst focused on news, filing tone, market sentiment
+- Build `src/agents/supply_chain.py` — Supply chain analyst focused on bottleneck positioning, demand visibility, competitive moat
+- Prompts for each at `src/agents/prompts/sentiment.md` and `src/agents/prompts/supply_chain.md`
+- Register both in `runner.py`'s `AGENT_REGISTRY`
+- Tests for both
+
+**Files to read at session start:** `CLAUDE.md`, `PROGRESS.md`, `DESIGN.md` (sections 4, 7), `src/agents/base.py`, `src/agents/fundamental.py`, `src/agents/runner.py`, `src/data/models.py`
