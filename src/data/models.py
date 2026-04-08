@@ -304,3 +304,58 @@ class SynthesisReport(BaseModel):
         if not v:
             raise ValueError("Must provide at least one watch item")
         return [item.strip() for item in v if item.strip()]
+
+
+# --- Portfolio Risk Report ---
+
+
+class RiskLevel(str, Enum):
+    """Portfolio risk level."""
+
+    LOW = "low"
+    MODERATE = "moderate"
+    ELEVATED = "elevated"
+    HIGH = "high"
+
+
+class PortfolioRiskReport(BaseModel):
+    """Portfolio-level risk assessment produced by the Risk Manager.
+
+    Reads all synthesis reports across the watchlist and evaluates
+    sector exposure, concentration, correlation, and position sizing.
+    Matches DESIGN.md Section 4.2 risk manager schema.
+    """
+
+    report_date: date = Field(default_factory=date.today)
+    portfolio_signals: list[dict] = Field(default_factory=list)
+    sector_exposure: dict[str, float] = Field(default_factory=dict)
+    concentration_warnings: list[str] = Field(default_factory=list)
+    correlation_flags: list[str] = Field(default_factory=list)
+    position_sizing: dict[str, dict] = Field(default_factory=dict)
+    overall_risk_level: RiskLevel
+    risk_summary: str
+    recommendations: list[str] = Field(default_factory=list)
+    tickers_analyzed: list[str] = Field(default_factory=list)
+
+    @field_validator("risk_summary")
+    @classmethod
+    def risk_summary_not_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Risk summary cannot be empty")
+        return v
+
+    @field_validator("recommendations")
+    @classmethod
+    def recommendations_not_empty(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("Must provide at least one recommendation")
+        return v
+
+    @field_validator("sector_exposure")
+    @classmethod
+    def exposure_values_valid(cls, v: dict[str, float]) -> dict[str, float]:
+        for sector, weight in v.items():
+            if weight < 0 or weight > 1:
+                raise ValueError(f"Sector weight must be 0-1, got {weight} for {sector}")
+        return v

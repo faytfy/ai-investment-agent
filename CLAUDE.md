@@ -1,9 +1,9 @@
 # AI Investment Agent — Session Instructions
 
 ## Current State
-- **Phase:** 3c — Synthesizer + LangGraph Orchestration (COMPLETE)
-- **Session:** 7 of 12
-- **Next Session:** 8 — Phase 4 (Risk Manager)
+- **Phase:** 4 — Risk Manager (COMPLETE)
+- **Session:** 8 of 12
+- **Next Session:** 9 — Phase 5a (Dashboard: Layout)
 
 ## Session Opening Protocol
 

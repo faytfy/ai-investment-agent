@@ -24,6 +24,7 @@ AGENT_REGISTRY = {
     "sentiment": ("src.agents.sentiment", "analyze_ticker"),
     "supply_chain": ("src.agents.supply_chain", "analyze_ticker"),
     "synthesizer": ("src.agents.synthesizer", "analyze_ticker"),
+    "risk_manager": ("src.agents.risk_manager", "analyze_portfolio"),
 }
 
 
@@ -133,6 +134,65 @@ def run_orchestrated(ticker: str, save: bool = True) -> None:
         print("All reports saved to database.")
 
 
+def run_risk(save: bool = True) -> None:
+    """Run the portfolio-level risk manager."""
+    from src.agents.risk_manager import analyze_portfolio
+
+    print("\nRunning portfolio risk assessment...")
+    print("(Reading latest synthesis reports for all watchlist tickers)\n")
+
+    start = time.monotonic()
+
+    try:
+        report = analyze_portfolio(save=save)
+    except Exception as e:
+        logger.error(f"Risk assessment failed: {e}")
+        sys.exit(1)
+
+    duration = time.monotonic() - start
+
+    print("=" * 60)
+    print(f"  PORTFOLIO RISK: {report.overall_risk_level.value.upper()}")
+    print("=" * 60)
+    print(f"\n{report.risk_summary}")
+
+    print(f"\nTickers analyzed: {', '.join(report.tickers_analyzed)}")
+
+    if report.sector_exposure:
+        print(f"\nSector Exposure:")
+        for sector, weight in sorted(report.sector_exposure.items(), key=lambda x: -x[1]):
+            print(f"  {sector}: {weight:.0%}")
+
+    if report.concentration_warnings:
+        print(f"\nConcentration Warnings:")
+        for w in report.concentration_warnings:
+            print(f"  ⚠ {w}")
+
+    if report.correlation_flags:
+        print(f"\nCorrelation Flags:")
+        for f in report.correlation_flags:
+            print(f"  ⚠ {f}")
+
+    if report.position_sizing:
+        print(f"\nPosition Sizing:")
+        for ticker, sizing in sorted(report.position_sizing.items()):
+            alloc = sizing.get("max_allocation", "?")
+            reason = sizing.get("reason", "")
+            if isinstance(alloc, (int, float)):
+                print(f"  {ticker}: max {alloc:.0%} — {reason}")
+            else:
+                print(f"  {ticker}: max {alloc} — {reason}")
+
+    if report.recommendations:
+        print(f"\nRecommendations:")
+        for r in report.recommendations:
+            print(f"  → {r}")
+
+    print(f"\nCompleted in {duration:.1f}s")
+    if save:
+        print("Risk report saved to database.")
+
+
 def run_all_orchestrated(save: bool = True) -> None:
     """Run orchestrated analysis for all watchlist tickers."""
     from src.orchestrator.graph import orchestrate
@@ -203,10 +263,12 @@ def main() -> None:
     parser.add_argument("--no-save", action="store_true", help="Don't save report to database")
     parser.add_argument("--orchestrate", action="store_true",
                         help="Run full pipeline: 3 analysts in parallel → synthesizer")
+    parser.add_argument("--risk", action="store_true",
+                        help="Run portfolio-level risk assessment (reads latest synthesis reports)")
 
     args = parser.parse_args()
 
-    if not args.ticker and not args.all:
+    if not args.ticker and not args.all and not args.risk:
         parser.print_help()
         sys.exit(1)
 
@@ -214,7 +276,9 @@ def main() -> None:
 
     save = not args.no_save
 
-    if args.orchestrate:
+    if args.risk:
+        run_risk(save=save)
+    elif args.orchestrate:
         if args.all:
             run_all_orchestrated(save=save)
         elif args.ticker:
