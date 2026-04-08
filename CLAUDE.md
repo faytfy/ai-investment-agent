@@ -1,9 +1,9 @@
 # AI Investment Agent — Session Instructions
 
 ## Current State
-- **Phase:** 4 — Risk Manager (COMPLETE)
-- **Session:** 8 of 12
-- **Next Session:** 9 — Phase 5a (Dashboard: Layout)
+- **Phase:** 5a — Dashboard Layout (COMPLETE)
+- **Session:** 9 of 12
+- **Next Session:** 10 — Phase 5b (Dashboard: Interactivity)
 
 ## Session Opening Protocol
 

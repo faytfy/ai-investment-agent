@@ -370,3 +370,55 @@ Build:
 - Read from DB (latest reports, synthesis, risk assessment)
 
 **Files to read at session start:** `CLAUDE.md`, `PROGRESS.md`, `DESIGN.md` (sections 4, 7, 9), `src/data/models.py`, `src/db/operations.py`, `src/config.py`
+
+---
+
+## Session 9 — Phase 5a: Dashboard Layout
+
+### Status: COMPLETE
+
+### Built
+- `src/dashboard/data_loader.py` — Data loading helpers for Streamlit: `load_portfolio_summary()` (latest synthesis per ticker), `load_ticker_detail()` (synthesis + analysts + price for one ticker), `load_risk_report()` (latest portfolio risk), `get_signal_color()`, `get_risk_color()` color mappers
+- `src/dashboard/app.py` — Streamlit dashboard with two views:
+  - **Portfolio Overview:** signal summary table (active + watch-only), signal distribution metrics (bullish/neutral/bearish counts), risk report card (risk level, summary, sector exposure bar chart, concentration warnings, correlation flags, position sizing table, recommendations)
+  - **Stock Detail:** price metrics (latest close, 52W high/low, range position), synthesis signal card (signal, confidence, agreement), recommendation, bull/bear case columns, thesis change alert, disagreement flags, watch items, analyst report expanders (each with thesis, bull/bear, risks, key metrics)
+- `tests/test_dashboard.py` — 26 tests: portfolio summary (6), ticker detail (8 including price data), risk report (5), corrupted data handling (4), color helpers (3)
+
+### Key Decisions
+- **Read-only dashboard** — No writes to DB from the dashboard. All data loaded via `get_reports()` and `get_prices()` from `operations.py`
+- **Data loader as separate module** — `data_loader.py` handles DB → display-ready dict conversion. Keeps `app.py` focused on layout. Testable independently without Streamlit.
+- **Dict-based return types** — Data loader returns plain dicts (not Pydantic models) since the data comes from `report_json` blobs. Avoids double-validation overhead.
+- **Graceful degradation** — Empty DB shows "No data" messages with CLI commands to populate. Missing reports for some tickers show partial data. Missing fields in JSON use `.get()` defaults.
+- **No caching yet** — Deferred to Session 10 when interactivity adds frequent reruns. Current page loads are fast (single DB read per view, ~11 tickers).
+
+### Bugs Found & Fixed During Review
+1. **Unused imports in data_loader.py** — `json`, `AnalysisReport`, `Signal`, `SynthesisReport`, `PortfolioRiskReport`, `RiskLevel`, `get_connection`, `get_stocks`, `init_db` imported but unused. Cleaned up.
+2. **Variable `f` shadowing built-in** — `for f in risk["correlation_flags"]` in app.py. Renamed to `flag`.
+3. **Dead `signal_badge`/`risk_badge` helpers** — Defined in app.py but never called. Removed.
+4. **Test: corrupted JSON test was a no-op** — Original test caught `JSONDecodeError` and passed silently. Rewritten to use `pytest.raises(json.JSONDecodeError)` to assert the specific behavior.
+5. **Test: latest-report test accepted any answer** — Both reports had same date, assertion accepted either signal. Fixed by using different dates to make ordering deterministic.
+
+### Review Notes (not fixed, acceptable)
+- `get_reports()` returns raw string signals, not `Signal` enum — consistent with existing pattern, validation happens at write time
+- No `@st.cache_data` — deferred to Session 10 when interactive widgets make caching worthwhile
+- `init_db()` runs on every Streamlit rerender — idempotent, negligible cost
+
+### Deviations
+- None — on track with roadmap
+
+### Open Blockers
+- None
+
+### Testing Note
+- 278 total tests pass (all sessions), 6 E2E skipped without API key
+- 26 new dashboard tests covering data loader functions, edge cases, corrupted data
+
+### Next Session (Session 10 — Phase 5b)
+**Scope:** Dashboard: Interactivity
+- Add `@st.cache_data` for performance on repeated reruns
+- Signal history / trend view (show signal changes over time)
+- Action buttons (trigger analysis run from dashboard)
+- Drill-downs and filtering
+- Refresh button to reload data
+
+**Files to read at session start:** `CLAUDE.md`, `PROGRESS.md`, `DESIGN.md` (sections 4, 7, 9), `src/dashboard/app.py`, `src/dashboard/data_loader.py`, `src/db/operations.py`
