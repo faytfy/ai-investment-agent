@@ -9,7 +9,7 @@ from typing import Optional
 import streamlit as st
 
 from src.config import WATCHLIST, WATCH_ONLY
-from src.db.operations import get_reports, get_prices
+from src.db.operations import get_alerts as db_get_alerts, get_reports, get_prices, get_upcoming_earnings
 from src.utils.logger import get_logger
 
 logger = get_logger("dashboard.data_loader")
@@ -239,3 +239,17 @@ def load_all_signal_history(limit_per_ticker: int = 10, db_path: Optional[str] =
             all_history.append({"ticker": ticker, **entry})
     all_history.sort(key=lambda x: x["date"])
     return all_history
+
+
+@st.cache_data(ttl=300)
+def load_alerts(limit: int = 20, db_path: Optional[str] = None) -> list[dict]:
+    """Load recent alerts, newest first."""
+    kwargs = {"db_path": db_path} if db_path else {}
+    return db_get_alerts(limit=limit, **kwargs)
+
+
+@st.cache_data(ttl=300)
+def load_earnings_calendar(db_path: Optional[str] = None) -> list[dict]:
+    """Load upcoming earnings events."""
+    kwargs = {"db_path": db_path} if db_path else {}
+    return get_upcoming_earnings(within_days=30, **kwargs)

@@ -9,6 +9,7 @@ import pandas as pd
 
 from src.config import DB_PATH, WATCH_ONLY, WATCHLIST
 from src.data.models import (
+    AlertRecord,
     FundamentalsSnapshot,
     FilingContent,
     FilingInfo,
@@ -439,6 +440,141 @@ def get_reports(
                 "report": json.loads(r["report_json"]),
                 "signal": r["signal"],
                 "confidence": r["confidence"],
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
+# --- Alert operations ---
+
+
+def save_alert(alert: AlertRecord, db_path: str = DB_PATH) -> None:
+    """Save an alert to the database."""
+    conn = get_connection(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO alerts (ticker, alert_type, severity, title, detail, acknowledged, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                alert.ticker,
+                alert.alert_type.value,
+                alert.severity.value,
+                alert.title,
+                alert.detail,
+                1 if alert.acknowledged else 0,
+                alert.created_at.isoformat(),
+            ),
+        )
+        conn.commit()
+        logger.info(f"Saved alert: [{alert.severity.value}] {alert.title}")
+    finally:
+        conn.close()
+
+
+def get_alerts(
+    limit: int = 50,
+    unacknowledged_only: bool = False,
+    db_path: str = DB_PATH,
+) -> list[dict]:
+    """Get recent alerts, newest first."""
+    conn = get_connection(db_path)
+    try:
+        query = "SELECT ticker, alert_type, severity, title, detail, acknowledged, created_at FROM alerts"
+        if unacknowledged_only:
+            query += " WHERE acknowledged = 0"
+        query += " ORDER BY created_at DESC LIMIT ?"
+        rows = conn.execute(query, (limit,)).fetchall()
+        return [
+            {
+                "ticker": r["ticker"],
+                "alert_type": r["alert_type"],
+                "severity": r["severity"],
+                "title": r["title"],
+                "detail": r["detail"],
+                "acknowledged": bool(r["acknowledged"]),
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
+def alert_exists_today(
+    ticker: Optional[str],
+    alert_type: str,
+    title: str,
+    db_path: str = DB_PATH,
+) -> bool:
+    """Check if an alert with the same ticker, type, and title was already created today."""
+    conn = get_connection(db_path)
+    try:
+        today = date.today().isoformat()
+        if ticker is None:
+            row = conn.execute(
+                "SELECT COUNT(*) as cnt FROM alerts "
+                "WHERE ticker IS NULL AND alert_type = ? AND title = ? "
+                "AND created_at >= ?",
+                (alert_type, title, today),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) as cnt FROM alerts "
+                "WHERE ticker = ? AND alert_type = ? AND title = ? "
+                "AND created_at >= ?",
+                (ticker, alert_type, title, today),
+            ).fetchone()
+        return row["cnt"] > 0
+    finally:
+        conn.close()
+
+
+# --- Earnings calendar operations ---
+
+
+def upsert_earnings(
+    ticker: str,
+    earnings_date: date,
+    estimate_eps: Optional[float] = None,
+    db_path: str = DB_PATH,
+) -> None:
+    """Store an earnings date, deduplicating on (ticker, earnings_date)."""
+    conn = get_connection(db_path)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO earnings_calendar (ticker, earnings_date, estimate_eps, fetched_at) "
+            "VALUES (?, ?, ?, ?)",
+            (ticker, earnings_date.isoformat(), estimate_eps, datetime.now().isoformat()),
+        )
+        conn.commit()
+        logger.info(f"Upserted earnings date for {ticker}: {earnings_date}")
+    finally:
+        conn.close()
+
+
+def get_upcoming_earnings(
+    within_days: int = 14,
+    db_path: str = DB_PATH,
+) -> list[dict]:
+    """Get earnings events within the next N days, sorted by date ascending."""
+    conn = get_connection(db_path)
+    try:
+        today = date.today().isoformat()
+        from datetime import timedelta
+        end_date = (date.today() + timedelta(days=within_days)).isoformat()
+        rows = conn.execute(
+            "SELECT ticker, earnings_date, estimate_eps FROM earnings_calendar "
+            "WHERE earnings_date >= ? AND earnings_date <= ? "
+            "ORDER BY earnings_date ASC",
+            (today, end_date),
+        ).fetchall()
+        return [
+            {
+                "ticker": r["ticker"],
+                "earnings_date": r["earnings_date"],
+                "estimate_eps": r["estimate_eps"],
             }
             for r in rows
         ]

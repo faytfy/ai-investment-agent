@@ -86,6 +86,32 @@ CREATE INDEX IF NOT EXISTS idx_news_ticker_date
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_news_dedup
     ON news_articles(ticker, title, published_at);
+
+CREATE TABLE IF NOT EXISTS alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker TEXT,
+    alert_type TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'info',
+    title TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    acknowledged INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_date
+    ON alerts(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS earnings_calendar (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker TEXT NOT NULL,
+    earnings_date TEXT NOT NULL,
+    estimate_eps REAL,
+    fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (ticker) REFERENCES stocks(ticker)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_earnings_ticker_date
+    ON earnings_calendar(ticker, earnings_date);
 """
 
 

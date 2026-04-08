@@ -474,3 +474,62 @@ Build:
 - Notification mechanism (e.g., email or log-based alerts)
 
 **Files to read at session start:** `CLAUDE.md`, `PROGRESS.md`, `DESIGN.md` (sections 4, 7, 10), `src/agents/runner.py`, `src/data/models.py`, `src/dashboard/data_loader.py`
+
+---
+
+## Session 11 — Phase 6: Automation & Alerts
+
+### Status: COMPLETE
+
+### Built
+- `src/data/models.py` — Added `AlertType` enum (signal_change, thesis_change, earnings_approaching, run_completed, run_failed), `AlertSeverity` enum (info, warning, critical), `AlertRecord` model (ticker, type, severity, title, detail, created_at, acknowledged), `EarningsEvent` model (ticker, earnings_date, estimate_eps)
+- `src/db/schema.py` — Added `alerts` table (with date index) and `earnings_calendar` table (with unique ticker+date index)
+- `src/db/operations.py` — Added `save_alert()`, `get_alerts()` (with unacknowledged filter), `alert_exists_today()` (dedup check), `upsert_earnings()`, `get_upcoming_earnings()` (date-windowed query)
+- `src/config.py` — Added scheduler config (day, hour, minute), `EARNINGS_ALERT_DAYS`, `ALERT_LOG_PATH`, SMTP settings (all env-driven, email disabled by default)
+- `src/automation/__init__.py` — Package init
+- `src/automation/__main__.py` — Entry point for `python -m src.automation`
+- `src/automation/earnings.py` — `_fetch_earnings_date()` (yfinance .calendar with dict/DataFrame format handling), `refresh_earnings_calendar()` (all tickers with 0.5s throttle)
+- `src/automation/alerts.py` — `detect_signal_changes()` (compares latest 2 synthesis reports per ticker, CRITICAL for bearish flips), `detect_thesis_changes()` (reads thesis_changed_since_last flag), `detect_earnings_alerts()` (upcoming earnings within alert window), `detect_and_fire_alerts()` (coordinator with same-day dedup)
+- `src/automation/notifier.py` — `notify()` dispatches to structured log file (always on) + optional SMTP email (off by default). Email failure never crashes the caller.
+- `src/automation/scheduler.py` — `scheduled_run()` (orchestrate → risk → earnings → alerts → notify), `start_scheduler()` (BlockingScheduler with CronTrigger), CLI with `--run-now` flag
+- `src/dashboard/data_loader.py` — Added `load_alerts()` and `load_earnings_calendar()` (both cached)
+- `src/dashboard/app.py` — Added Recent Alerts section, Upcoming Earnings section, schedule status in sidebar (schedule display + last run timestamp)
+- `tests/test_automation.py` — 38 tests: models (6), alert DB ops (5), earnings DB ops (4), signal change detection (5), thesis change detection (3), earnings alerts (2), dedup (1), earnings fetcher (5), notifier (4), scheduler pipeline (3)
+
+### Key Decisions
+- **Standalone scheduler process** — Runs separately from Streamlit, communicates via shared SQLite DB. `python -m src.automation.scheduler` blocks with APScheduler; `--run-now` runs once and exits.
+- **Direct function calls** — Scheduler calls `run_all_orchestrated()` and `run_risk()` directly (Python imports, not subprocess). Catches `SystemExit` since runner functions call `sys.exit(1)` on failure.
+- **Alert dedup via `alert_exists_today()`** — Same (ticker, alert_type, title) within the same day prevents duplicate alerts on re-runs.
+- **Severity escalation** — Signal changes involving bearish = CRITICAL. Neutral transitions = WARNING. Thesis changes = WARNING. Earnings/run status = INFO.
+- **Email off by default** — `SMTP_ENABLED=false`. Alert log file is the primary notification channel for a solo user.
+- **All config env-driven** — Schedule timing, alert window, SMTP settings all configurable via environment variables without code changes.
+
+### Bugs Found & Fixed During Review
+1. **`sys.exit(1)` kills scheduler** — `run_risk()` and `run_all_orchestrated()` in `runner.py` call `sys.exit(1)` on failure, which is `SystemExit` (not `Exception`). Scheduler's `try/except Exception` wouldn't catch it. Fixed by wrapping both calls in `try/except SystemExit`.
+2. **Operator precedence ambiguity** — `if cal is None or cal.empty if hasattr(cal, "empty") else not cal` parsed correctly but was unreadable. Added explicit parentheses.
+3. **Tests depended on real WATCHLIST config** — Alert detection tests relied on "TSM" being in the actual config. Mocked `WATCHLIST` and `WATCH_ONLY` in all detection tests for isolation.
+4. **No earnings fetcher tests** — `earnings.py` had zero coverage. Added 5 tests with mocked yfinance.
+
+### Review Notes (not fixed, acceptable)
+- `start_scheduler()` not directly tested — APScheduler internals are their responsibility; we test the `scheduled_run()` pipeline
+- SMTP only supports port 587 (STARTTLS) — port 465 (implicit SSL) would need `SMTP_SSL()`. Acceptable for an opt-in feature.
+- `run_all_orchestrated` and `run_risk` don't accept `db_path` — they always use global `DB_PATH`. Scheduler's `db_path` parameter only affects earnings/alerts. Acceptable; would need runner refactor to change.
+
+### Deviations
+- None — on track with roadmap
+
+### Open Blockers
+- None
+
+### Testing Note
+- 330 total tests pass (all sessions), 6 E2E skipped without API key
+- 38 new automation tests covering models, DB ops, detection logic, dedup, earnings fetcher, notifier, scheduler pipeline
+
+### Next Session (Session 12 — Integration & Polish)
+**Scope:** End-to-end testing, edge cases, README
+- Full pipeline E2E test (fetch data → orchestrate → risk → alerts → dashboard)
+- Edge case hardening across all modules
+- README with setup instructions, usage examples, architecture diagram
+- Any polish or cleanup from previous sessions
+
+**Files to read at session start:** `CLAUDE.md`, `PROGRESS.md`, `DESIGN.md`, all `src/` modules for integration review

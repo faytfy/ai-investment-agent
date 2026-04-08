@@ -45,3 +45,20 @@ SEC_EDGAR_USER_AGENT = "AIInvestmentAgent research@example.com"
 # Analysis settings
 ANALYSIS_SCHEDULE = "weekly"  # weekly | daily
 CONFIDENCE_THRESHOLD = 0.6  # minimum confidence to surface a signal
+
+# Scheduler
+SCHEDULE_DAY_OF_WEEK = os.getenv("SCHEDULE_DAY_OF_WEEK", "sun")
+SCHEDULE_HOUR = int(os.getenv("SCHEDULE_HOUR", "18"))
+SCHEDULE_MINUTE = int(os.getenv("SCHEDULE_MINUTE", "0"))
+
+# Alerts
+EARNINGS_ALERT_DAYS = int(os.getenv("EARNINGS_ALERT_DAYS", "7"))
+ALERT_LOG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "alerts.log")
+
+# Email notifications (off by default)
+SMTP_ENABLED = os.getenv("SMTP_ENABLED", "false").lower() == "true"
+SMTP_HOST = os.getenv("SMTP_HOST", "")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_TO = os.getenv("SMTP_TO", "")
