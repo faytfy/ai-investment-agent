@@ -5,6 +5,7 @@ Email failure never crashes the caller.
 """
 
 import logging
+import os
 import smtplib
 from datetime import date
 from email.mime.text import MIMEText
@@ -35,6 +36,10 @@ def _get_alert_logger() -> logging.Logger:
         _alert_logger.setLevel(logging.INFO)
         _alert_logger.propagate = False
         if not _alert_logger.handlers:
+            # Ensure the log directory exists
+            log_dir = os.path.dirname(ALERT_LOG_PATH)
+            if log_dir:
+                os.makedirs(log_dir, exist_ok=True)
             handler = logging.FileHandler(ALERT_LOG_PATH)
             handler.setFormatter(logging.Formatter(
                 "%(asctime)s [%(levelname)s] %(message)s",
@@ -54,12 +59,15 @@ def _severity_to_log_level(severity: str) -> int:
 
 
 def _log_alerts(alerts: list[AlertRecord]) -> None:
-    """Write alerts to the structured log file."""
-    alert_log = _get_alert_logger()
-    for alert in alerts:
-        level = _severity_to_log_level(alert.severity.value)
-        ticker_str = alert.ticker or "PORTFOLIO"
-        alert_log.log(level, "%s | %s | %s", alert.alert_type.value, ticker_str, alert.title)
+    """Write alerts to the structured log file. Fails silently on I/O errors."""
+    try:
+        alert_log = _get_alert_logger()
+        for alert in alerts:
+            level = _severity_to_log_level(alert.severity.value)
+            ticker_str = alert.ticker or "PORTFOLIO"
+            alert_log.log(level, "%s | %s | %s", alert.alert_type.value, ticker_str, alert.title)
+    except OSError as e:
+        logger.error(f"Failed to write to alert log file: {e}")
 
 
 def _format_email_body(alerts: list[AlertRecord]) -> str:

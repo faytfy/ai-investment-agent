@@ -28,6 +28,7 @@ def scheduled_run(db_path: str | None = None) -> None:
     kwargs = {"db_path": db_path} if db_path else {}
     start = time.monotonic()
     logger.info("Scheduled run starting...")
+    step_failures: list[str] = []
 
     try:
         init_db(**({} if db_path is None else {"db_path": db_path}))
@@ -39,6 +40,10 @@ def scheduled_run(db_path: str | None = None) -> None:
         except SystemExit as e:
             if e.code != 0:
                 logger.warning(f"Orchestrated analysis exited with code {e.code}, continuing...")
+                step_failures.append(f"orchestration (exit code {e.code})")
+        except Exception as e:
+            logger.error(f"Orchestrated analysis failed: {e}, continuing...")
+            step_failures.append(f"orchestration ({e})")
 
         # Step 2: Run portfolio risk assessment
         logger.info("Step 2/4: Running portfolio risk assessment...")
@@ -47,6 +52,10 @@ def scheduled_run(db_path: str | None = None) -> None:
         except SystemExit as e:
             if e.code != 0:
                 logger.warning(f"Risk analysis exited with code {e.code}, continuing...")
+                step_failures.append(f"risk (exit code {e.code})")
+        except Exception as e:
+            logger.error(f"Risk analysis failed: {e}, continuing...")
+            step_failures.append(f"risk ({e})")
 
         # Step 3: Refresh earnings calendar
         logger.info("Step 3/4: Refreshing earnings calendar...")
@@ -59,11 +68,13 @@ def scheduled_run(db_path: str | None = None) -> None:
         duration = time.monotonic() - start
 
         # Save run-completed alert
+        status = "with errors" if step_failures else "successfully"
+        failure_detail = f" Failed steps: {', '.join(step_failures)}." if step_failures else ""
         run_alert = AlertRecord(
             alert_type=AlertType.RUN_COMPLETED,
-            severity=AlertSeverity.INFO,
-            title="Scheduled analysis run completed",
-            detail=f"Full pipeline completed in {duration:.0f}s. {len(alerts)} alert(s) generated.",
+            severity=AlertSeverity.WARNING if step_failures else AlertSeverity.INFO,
+            title=f"Scheduled analysis run completed {status}",
+            detail=f"Pipeline completed in {duration:.0f}s. {len(alerts)} alert(s) generated.{failure_detail}",
         )
         save_alert(run_alert, **kwargs)
         alerts.append(run_alert)

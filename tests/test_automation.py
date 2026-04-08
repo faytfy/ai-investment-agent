@@ -585,22 +585,41 @@ class TestSchedulerPipeline:
         run_alerts = [a for a in alerts if a["alert_type"] == "run_completed"]
         assert len(run_alerts) == 1
 
-    def test_run_failed_alert_on_exception(self, db_path):
+    def test_step_failure_continues_pipeline(self, db_path):
+        """When orchestration fails, the pipeline continues to risk/earnings/alerts."""
         from src.automation.scheduler import scheduled_run
 
         with patch("src.agents.runner.run_all_orchestrated", side_effect=Exception("API down")), \
+             patch("src.agents.runner.run_risk") as mock_risk, \
+             patch("src.automation.earnings.refresh_earnings_calendar") as mock_earn, \
+             patch("src.automation.alerts.detect_and_fire_alerts", return_value=[]) as mock_alerts, \
              patch("src.automation.notifier.notify") as mock_notify:
 
             scheduled_run(db_path=db_path)
 
-        # Should have saved a run_failed alert
+            # Pipeline should have continued past step 1 failure
+            mock_risk.assert_called_once()
+            mock_earn.assert_called_once()
+            mock_alerts.assert_called_once()
+
+        # Should have saved a run_completed alert (not run_failed)
         alerts = get_alerts(limit=10, db_path=db_path)
-        fail_alerts = [a for a in alerts if a["alert_type"] == "run_failed"]
-        assert len(fail_alerts) == 1
-        assert "API down" in fail_alerts[0]["detail"]
+        completed = [a for a in alerts if a["alert_type"] == "run_completed"]
+        assert len(completed) == 1
+
+    def test_run_failed_alert_on_fatal_exception(self, db_path):
+        """When init_db itself fails, the entire pipeline fails with run_failed alert."""
+        from src.automation.scheduler import scheduled_run
+
+        with patch("src.automation.scheduler.init_db", side_effect=Exception("DB corrupted")), \
+             patch("src.automation.notifier.notify") as mock_notify:
+
+            scheduled_run(db_path=db_path)
 
         # Should have notified about the failure
         mock_notify.assert_called_once()
+        fail_alerts = mock_notify.call_args[0][0]
+        assert any(a.alert_type.value == "run_failed" for a in fail_alerts)
 
     def test_run_now_flag_parses(self):
         from src.automation.scheduler import main

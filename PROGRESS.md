@@ -533,3 +533,50 @@ Build:
 - Any polish or cleanup from previous sessions
 
 **Files to read at session start:** `CLAUDE.md`, `PROGRESS.md`, `DESIGN.md`, all `src/` modules for integration review
+
+---
+
+## Session 12 — Integration & Polish (FINAL)
+
+### Status: COMPLETE
+
+### Built
+- `tests/test_integration.py` — 19 E2E integration tests across 4 test classes:
+  - `TestFullPipeline` (5 tests): price/fundamentals round-trip, analyst reports round-trip, synthesis round-trip, risk report round-trip, full pipeline data flow (prices → analysts → synthesis → risk → alerts → earnings → all dashboard loaders)
+  - `TestSignalChangeDetection` (3 tests): signal flip detection, no-alert-on-unchanged, earnings alert within window
+  - `TestEmptyDatabase` (3 tests): dashboard loaders with empty DB, alert detection with empty DB, scheduler handles empty DB
+  - `TestDataConsistency` (8 tests): synthesis/analyst/risk model_dump round-trips, alert round-trip, cross-ticker signal history, unknown ticker fallback, scheduler step failure tracking
+- `README.md` — Project overview, architecture diagram, watchlist, setup instructions, usage examples (runner CLI, scheduler, dashboard, email), project structure, tech stack, testing
+
+### Edge Case Hardening
+- `src/automation/scheduler.py` — Added `except Exception` alongside `except SystemExit` for orchestration and risk steps. Added `step_failures` tracking: run-completed alert now includes which steps failed, with severity escalated to WARNING on partial failures.
+- `src/automation/notifier.py` — Wrapped `_log_alerts()` in `try/except OSError` for disk I/O safety. Added `os.makedirs(log_dir, exist_ok=True)` in `_get_alert_logger()` to create log directory if missing.
+- `src/config.py` — Removed unused `CONFIDENCE_THRESHOLD`. Added `CACHE_TTL` constant (env-configurable, default 300s).
+- `src/dashboard/data_loader.py` — Replaced all hardcoded `ttl=300` with `CACHE_TTL` from config.
+
+### Review Findings Addressed
+- Scheduler exception handling: both `SystemExit` and `Exception` now caught for all pipeline steps
+- Notifier: log directory auto-created, I/O errors caught
+- Dead config removed
+- Dashboard cache TTL configurable
+- Step failure tracking added to scheduler alerts
+
+### Deviations
+- None — on track with roadmap
+
+### Open Blockers
+- None
+
+### Testing Note
+- 349 total tests pass (all sessions), 6 E2E skipped without API key
+- 19 new integration tests covering full pipeline, signal detection, empty DB, data consistency
+
+### Project Status
+All 12 sessions complete. The system is fully functional:
+- Data pipeline (yfinance, SEC EDGAR, news)
+- 3 analyst agents (fundamental, sentiment, supply chain) running in parallel via LangGraph
+- Research synthesizer producing unified recommendations
+- Portfolio risk manager
+- Streamlit dashboard with portfolio overview, stock detail, alerts, earnings calendar
+- Automated weekly scheduler with signal-change/thesis-change/earnings alerts
+- 349 tests across 12 test modules

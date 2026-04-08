@@ -8,7 +8,7 @@ from typing import Optional
 
 import streamlit as st
 
-from src.config import WATCHLIST, WATCH_ONLY
+from src.config import CACHE_TTL, WATCHLIST, WATCH_ONLY
 from src.db.operations import get_alerts as db_get_alerts, get_reports, get_prices, get_upcoming_earnings
 from src.utils.logger import get_logger
 
@@ -20,7 +20,7 @@ SYNTHESIZER_AGENT = "research_synthesizer"
 RISK_AGENT = "risk_manager"
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_portfolio_summary(db_path: Optional[str] = None) -> list[dict]:
     """Load latest synthesis report for each watchlist ticker.
 
@@ -61,7 +61,7 @@ def load_portfolio_summary(db_path: Optional[str] = None) -> list[dict]:
     return summaries
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_ticker_detail(ticker: str, db_path: Optional[str] = None) -> dict:
     """Load detailed data for a single ticker.
 
@@ -145,7 +145,7 @@ def load_ticker_detail(ticker: str, db_path: Optional[str] = None) -> dict:
     return detail
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_risk_report(db_path: Optional[str] = None) -> Optional[dict]:
     """Load the latest portfolio risk report.
 
@@ -200,7 +200,7 @@ def get_risk_color(risk_level: Optional[str]) -> str:
     return colors.get(risk_level.lower(), "gray")
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_signal_history(ticker: str, limit: int = 20, db_path: Optional[str] = None) -> list[dict]:
     """Load synthesis signal history for a single ticker.
 
@@ -224,7 +224,7 @@ def load_signal_history(ticker: str, limit: int = 20, db_path: Optional[str] = N
     return history
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_all_signal_history(limit_per_ticker: int = 10, db_path: Optional[str] = None) -> list[dict]:
     """Load recent signal history across all watchlist tickers.
 
@@ -241,14 +241,14 @@ def load_all_signal_history(limit_per_ticker: int = 10, db_path: Optional[str] =
     return all_history
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_alerts(limit: int = 20, db_path: Optional[str] = None) -> list[dict]:
     """Load recent alerts, newest first."""
     kwargs = {"db_path": db_path} if db_path else {}
     return db_get_alerts(limit=limit, **kwargs)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_earnings_calendar(db_path: Optional[str] = None) -> list[dict]:
     """Load upcoming earnings events."""
     kwargs = {"db_path": db_path} if db_path else {}

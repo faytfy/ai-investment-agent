@@ -44,7 +44,9 @@ SEC_EDGAR_USER_AGENT = "AIInvestmentAgent research@example.com"
 
 # Analysis settings
 ANALYSIS_SCHEDULE = "weekly"  # weekly | daily
-CONFIDENCE_THRESHOLD = 0.6  # minimum confidence to surface a signal
+
+# Dashboard
+CACHE_TTL = int(os.getenv("CACHE_TTL", "300"))  # seconds for Streamlit cache
 
 # Scheduler
 SCHEDULE_DAY_OF_WEEK = os.getenv("SCHEDULE_DAY_OF_WEEK", "sun")
