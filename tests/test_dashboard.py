@@ -5,6 +5,7 @@ import os
 import sqlite3
 import tempfile
 from datetime import date
+from unittest.mock import patch
 
 import pytest
 
@@ -13,6 +14,8 @@ from src.dashboard.data_loader import (
     load_portfolio_summary,
     load_ticker_detail,
     load_risk_report,
+    load_signal_history,
+    load_all_signal_history,
     get_signal_color,
     get_risk_color,
     ANALYST_AGENTS,
@@ -31,7 +34,8 @@ def db_path():
     os.unlink(path)
 
 
-def _save_synthesis(ticker: str, signal: str, confidence: float, db_path: str, **extra):
+def _save_synthesis(ticker: str, signal: str, confidence: float, db_path: str,
+                    report_date: date = None, **extra):
     """Helper to save a synthesis report."""
     report = {
         "ticker": ticker,
@@ -46,11 +50,10 @@ def _save_synthesis(ticker: str, signal: str, confidence: float, db_path: str, *
         "key_watch_items": extra.get("key_watch_items", ["Next earnings"]),
         "analyst_reports_used": extra.get("analyst_reports_used", []),
     }
-    # Use neutral as the signal column placeholder (matches risk_manager pattern)
     save_report(
         ticker=ticker,
         agent_name=SYNTHESIZER_AGENT,
-        report_date=date.today(),
+        report_date=report_date or date.today(),
         report=report,
         signal=signal if signal in ("bullish", "bearish", "neutral") else "neutral",
         confidence=confidence,
@@ -85,7 +88,6 @@ def _save_analyst_report(ticker: str, agent: str, signal: str, confidence: float
 
 def _save_risk_report(db_path: str, **extra):
     """Helper to save a risk report. Creates PORTFOLIO stock entry if needed."""
-    # Ensure PORTFOLIO ticker exists
     conn = get_connection(db_path)
     try:
         conn.execute(
@@ -167,8 +169,6 @@ class TestLoadPortfolioSummary:
 
     def test_latest_report_used(self, db_path):
         """Verify that the most recent report (by date) is returned."""
-        # Use different dates to make ordering deterministic
-        from datetime import date as date_type
         report_old = {
             "ticker": "TSM", "overall_signal": "bearish", "overall_confidence": 0.4,
             "analyst_agreement": "1/3 bearish", "disagreement_flags": [],
@@ -183,8 +183,8 @@ class TestLoadPortfolioSummary:
             "recommendation": "BUY", "thesis_changed_since_last": False,
             "key_watch_items": ["x"], "analyst_reports_used": [],
         }
-        save_report("TSM", SYNTHESIZER_AGENT, date_type(2026, 4, 1), report_old, "bearish", 0.4, db_path)
-        save_report("TSM", SYNTHESIZER_AGENT, date_type(2026, 4, 8), report_new, "bullish", 0.9, db_path)
+        save_report("TSM", SYNTHESIZER_AGENT, date(2026, 4, 1), report_old, "bearish", 0.4, db_path)
+        save_report("TSM", SYNTHESIZER_AGENT, date(2026, 4, 8), report_new, "bullish", 0.9, db_path)
         summaries = load_portfolio_summary(db_path=db_path)
         tsm = next(s for s in summaries if s["ticker"] == "TSM")
         assert tsm["signal"] == "bullish"
@@ -247,7 +247,6 @@ class TestLoadTickerDetail:
 
     def test_partial_analysts(self, db_path):
         _save_analyst_report("TSM", "fundamental_analyst", "bullish", 0.8, db_path)
-        # Only one analyst, other two missing
         detail = load_ticker_detail("TSM", db_path=db_path)
         assert len(detail["analysts"]) == 1
         assert detail["analysts"][0]["agent"] == "fundamental_analyst"
@@ -259,10 +258,9 @@ class TestLoadTickerDetail:
     def test_with_price_data(self, db_path):
         from src.data.models import PriceBar, PriceHistory
         from src.db.operations import upsert_prices
-        from datetime import date as date_type
 
         bars = [
-            PriceBar(date=date_type(2026, 4, i), open=100.0 + i, high=105.0 + i,
+            PriceBar(date=date(2026, 4, i), open=100.0 + i, high=105.0 + i,
                      low=95.0 + i, close=102.0 + i, volume=1000000)
             for i in range(1, 6)
         ]
@@ -323,6 +321,97 @@ class TestLoadRiskReport:
 
 
 # ============================================================
+# load_signal_history tests
+# ============================================================
+
+
+class TestLoadSignalHistory:
+
+    def test_empty_db_returns_empty_list(self, db_path):
+        result = load_signal_history("TSM", db_path=db_path)
+        assert result == []
+
+    def test_single_report(self, db_path):
+        _save_synthesis("TSM", "bullish", 0.85, db_path, report_date=date(2026, 4, 1))
+        result = load_signal_history("TSM", db_path=db_path)
+        assert len(result) == 1
+        assert result[0]["signal"] == "bullish"
+        assert result[0]["confidence"] == 0.85
+        assert result[0]["date"] == "2026-04-01"
+
+    def test_multiple_reports_chronological_order(self, db_path):
+        _save_synthesis("TSM", "bearish", 0.4, db_path, report_date=date(2026, 4, 1))
+        _save_synthesis("TSM", "neutral", 0.5, db_path, report_date=date(2026, 4, 4))
+        _save_synthesis("TSM", "bullish", 0.85, db_path, report_date=date(2026, 4, 8))
+        result = load_signal_history("TSM", db_path=db_path)
+        assert len(result) == 3
+        # Should be chronological (oldest first)
+        assert result[0]["signal"] == "bearish"
+        assert result[1]["signal"] == "neutral"
+        assert result[2]["signal"] == "bullish"
+
+    def test_limit_respected(self, db_path):
+        for i in range(5):
+            _save_synthesis("TSM", "bullish", 0.8, db_path, report_date=date(2026, 4, i + 1))
+        result = load_signal_history("TSM", limit=3, db_path=db_path)
+        assert len(result) == 3
+
+    def test_only_returns_requested_ticker(self, db_path):
+        _save_synthesis("TSM", "bullish", 0.85, db_path, report_date=date(2026, 4, 1))
+        _save_synthesis("AVGO", "bearish", 0.6, db_path, report_date=date(2026, 4, 1))
+        result = load_signal_history("TSM", db_path=db_path)
+        assert len(result) == 1
+        assert result[0]["signal"] == "bullish"
+
+    def test_signal_change_detection(self, db_path):
+        """History can be used to detect signal changes."""
+        _save_synthesis("TSM", "bearish", 0.4, db_path, report_date=date(2026, 4, 1))
+        _save_synthesis("TSM", "bullish", 0.8, db_path, report_date=date(2026, 4, 8))
+        result = load_signal_history("TSM", db_path=db_path)
+        assert result[0]["signal"] != result[1]["signal"]
+
+
+# ============================================================
+# load_all_signal_history tests
+# ============================================================
+
+
+class TestLoadAllSignalHistory:
+
+    def test_empty_db_returns_empty_list(self, db_path):
+        result = load_all_signal_history(db_path=db_path)
+        assert result == []
+
+    def test_multiple_tickers(self, db_path):
+        _save_synthesis("TSM", "bullish", 0.85, db_path, report_date=date(2026, 4, 1))
+        _save_synthesis("AVGO", "bearish", 0.6, db_path, report_date=date(2026, 4, 2))
+        result = load_all_signal_history(db_path=db_path)
+        assert len(result) == 2
+        tickers = {r["ticker"] for r in result}
+        assert tickers == {"TSM", "AVGO"}
+
+    def test_sorted_by_date(self, db_path):
+        _save_synthesis("AVGO", "bearish", 0.6, db_path, report_date=date(2026, 4, 5))
+        _save_synthesis("TSM", "bullish", 0.85, db_path, report_date=date(2026, 4, 1))
+        result = load_all_signal_history(db_path=db_path)
+        assert result[0]["ticker"] == "TSM"  # earlier date
+        assert result[1]["ticker"] == "AVGO"
+
+    def test_includes_ticker_field(self, db_path):
+        _save_synthesis("TSM", "bullish", 0.85, db_path, report_date=date(2026, 4, 1))
+        result = load_all_signal_history(db_path=db_path)
+        assert "ticker" in result[0]
+        assert result[0]["ticker"] == "TSM"
+
+    def test_limit_per_ticker(self, db_path):
+        for i in range(5):
+            _save_synthesis("TSM", "bullish", 0.8, db_path, report_date=date(2026, 4, i + 1))
+        result = load_all_signal_history(limit_per_ticker=2, db_path=db_path)
+        tsm_entries = [r for r in result if r["ticker"] == "TSM"]
+        assert len(tsm_entries) == 2
+
+
+# ============================================================
 # Corrupted data tests
 # ============================================================
 
@@ -342,7 +431,6 @@ class TestCorruptedData:
         finally:
             conn.close()
 
-        # get_reports calls json.loads which raises on corrupted data
         with pytest.raises(json.JSONDecodeError):
             load_portfolio_summary(db_path=db_path)
 
@@ -361,19 +449,13 @@ class TestCorruptedData:
 
         summaries = load_portfolio_summary(db_path=db_path)
         tsm = next(s for s in summaries if s["ticker"] == "TSM")
-        # .get() returns None for missing fields, not crash
         assert tsm["signal"] is None
         assert tsm["confidence"] is None
         assert tsm["recommendation"] is None
 
     def test_corrupted_analyst_report_skipped(self, db_path):
         """Corrupted analyst report JSON in DB should not crash ticker detail."""
-        # Insert a valid analyst report first
         _save_analyst_report("TSM", "fundamental_analyst", "bullish", 0.8, db_path)
-        # Insert corrupted one for a different agent — but corrupted JSON will
-        # propagate from get_reports. Test that the valid one loads.
-        # Actually, since get_reports does json.loads, corrupted JSON raises.
-        # So we test with valid JSON but missing fields instead.
         conn = get_connection(db_path)
         try:
             conn.execute(
@@ -386,7 +468,6 @@ class TestCorruptedData:
             conn.close()
 
         detail = load_ticker_detail("TSM", db_path=db_path)
-        # Should have 2 analysts (one valid, one with missing fields but no crash)
         assert len(detail["analysts"]) == 2
 
     def test_corrupted_risk_report_returns_none(self, db_path):
@@ -407,10 +488,31 @@ class TestCorruptedData:
             conn.close()
 
         result = load_risk_report(db_path=db_path)
-        # Should return a result with defaults from .get(), not crash
         assert result is not None
         assert result["sector_exposure"] == {}
         assert result["recommendations"] == []
+
+    def test_corrupted_signal_history_entry_skipped(self, db_path):
+        """Signal history entries with bad data are skipped gracefully."""
+        # Save a valid report
+        _save_synthesis("TSM", "bullish", 0.85, db_path, report_date=date(2026, 4, 1))
+        # Insert a report with valid JSON but that will trigger TypeError in .get()
+        conn = get_connection(db_path)
+        try:
+            # report_json is a JSON array instead of object — .get() on list raises AttributeError
+            conn.execute(
+                "INSERT INTO analysis_reports (ticker, agent_name, date, report_json, signal, confidence) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                ("TSM", SYNTHESIZER_AGENT, "2026-04-05", '[1, 2, 3]', "neutral", 0.5),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        # load_signal_history should skip the corrupted entry
+        result = load_signal_history("TSM", db_path=db_path)
+        assert len(result) == 1
+        assert result[0]["signal"] == "bullish"
 
 
 # ============================================================
@@ -438,3 +540,27 @@ class TestColorHelpers:
     def test_case_insensitive(self):
         assert get_signal_color("BULLISH") == "green"
         assert get_risk_color("HIGH") == "red"
+
+
+# ============================================================
+# Action button subprocess tests
+# ============================================================
+
+
+class TestPriceLoadingEdgeCases:
+
+    def test_price_load_exception_returns_none(self, db_path):
+        """If price loading raises, detail['price'] remains None."""
+        with patch("src.dashboard.data_loader.get_prices", side_effect=Exception("DB error")):
+            detail = load_ticker_detail("TSM", db_path=db_path)
+            assert detail["price"] is None
+
+    def test_signal_history_chronological_with_limit(self, db_path):
+        """When limit is less than available reports, returns the most recent N in chronological order."""
+        _save_synthesis("TSM", "bearish", 0.3, db_path, report_date=date(2026, 4, 1))
+        _save_synthesis("TSM", "neutral", 0.5, db_path, report_date=date(2026, 4, 4))
+        _save_synthesis("TSM", "bullish", 0.8, db_path, report_date=date(2026, 4, 8))
+        # Limit to 2 — should get the 2 most recent (newest from DB), reversed to chronological
+        result = load_signal_history("TSM", limit=2, db_path=db_path)
+        assert len(result) == 2
+        assert result[0]["date"] <= result[1]["date"]  # chronological order

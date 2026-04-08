@@ -4,14 +4,19 @@ Run with:
     streamlit run src/dashboard/app.py
 """
 
-import streamlit as st
+import subprocess
+import sys
+
 import pandas as pd
+import streamlit as st
 
 from src.db.operations import init_db
 from src.dashboard.data_loader import (
     load_portfolio_summary,
     load_ticker_detail,
     load_risk_report,
+    load_signal_history,
+    load_all_signal_history,
 )
 from src.config import WATCHLIST, WATCH_ONLY
 
@@ -31,6 +36,11 @@ init_db()
 
 st.sidebar.title("AI Investment Agent")
 
+# Refresh button
+if st.sidebar.button("Refresh Data"):
+    st.cache_data.clear()
+    st.rerun()
+
 all_tickers = list(WATCHLIST.keys()) + list(WATCH_ONLY.keys())
 view = st.sidebar.radio("View", ["Portfolio Overview", "Stock Detail"])
 
@@ -39,12 +49,60 @@ if view == "Stock Detail":
     selected_ticker = st.sidebar.selectbox("Select Ticker", all_tickers)
 
 
+# --- Helper: run analysis subprocess ---
+
+def _run_analysis(args: list[str], label: str) -> None:
+    """Run an analysis subprocess and display results."""
+    with st.spinner(f"Running {label}..."):
+        result = subprocess.run(
+            [sys.executable, "-m", "src.agents.runner"] + args,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+    if result.returncode == 0:
+        st.success(f"{label} completed successfully.")
+        if result.stdout:
+            with st.expander("Output", expanded=False):
+                st.code(result.stdout[-3000:])
+        # Clear cache so new data shows
+        st.cache_data.clear()
+    else:
+        st.error(f"{label} failed (exit code {result.returncode}).")
+        if result.stderr:
+            with st.expander("Error details", expanded=True):
+                st.code(result.stderr[-3000:])
+
+
 # ============================================================
 # PORTFOLIO OVERVIEW
 # ============================================================
 
 if view == "Portfolio Overview":
     st.title("Portfolio Overview")
+
+    # --- Filters ---
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Filters")
+
+    signal_filter = st.sidebar.multiselect(
+        "Signal",
+        options=["bullish", "neutral", "bearish", "no data"],
+        default=[],
+    )
+    tier_filter = st.sidebar.multiselect(
+        "Tier",
+        options=[1, 2, 0],
+        format_func=lambda x: {1: "Tier 1", 2: "Tier 2", 0: "Watch Only"}[x],
+        default=[],
+    )
+
+    # --- Action Button ---
+    st.sidebar.markdown("---")
+    if st.sidebar.button("Run Full Analysis"):
+        _run_analysis(["--all", "--orchestrate"], "Full Portfolio Analysis")
+    if st.sidebar.button("Run Risk Analysis"):
+        _run_analysis(["--risk"], "Risk Analysis")
 
     # --- Signal Summary Table ---
     st.header("Signal Summary")
@@ -55,9 +113,20 @@ if view == "Portfolio Overview":
         st.info("No data yet. Run the orchestrated pipeline first: "
                 "`python -m src.agents.runner --all --orchestrate`")
     else:
+        # Apply filters
+        filtered = summaries
+        if signal_filter:
+            filtered = [
+                s for s in filtered
+                if (s["signal"] in signal_filter)
+                or (s["signal"] is None and "no data" in signal_filter)
+            ]
+        if tier_filter:
+            filtered = [s for s in filtered if s["tier"] in tier_filter]
+
         # Split into active and watch-only
-        active = [s for s in summaries if s["tier"] > 0]
-        watch_only = [s for s in summaries if s["tier"] == 0]
+        active = [s for s in filtered if s["tier"] > 0]
+        watch_only = [s for s in filtered if s["tier"] == 0]
 
         if active:
             # Build table data
@@ -89,7 +158,8 @@ if view == "Portfolio Overview":
             )
 
             # Signal distribution
-            signals = [s["signal"] for s in active if s["signal"]]
+            all_active = [s for s in summaries if s["tier"] > 0]
+            signals = [s["signal"] for s in all_active if s["signal"]]
             if signals:
                 col1, col2, col3 = st.columns(3)
                 bullish_count = sum(1 for s in signals if s == "bullish")
@@ -98,6 +168,8 @@ if view == "Portfolio Overview":
                 col1.metric("Bullish", bullish_count)
                 col2.metric("Neutral", neutral_count)
                 col3.metric("Bearish", bearish_count)
+        elif signal_filter or tier_filter:
+            st.info("No stocks match the selected filters.")
 
         if watch_only:
             st.subheader("Watch Only")
@@ -111,6 +183,43 @@ if view == "Portfolio Overview":
                     "Confidence": f"{s['confidence']:.0%}" if s["confidence"] is not None else "—",
                 })
             st.dataframe(pd.DataFrame(watch_data), use_container_width=True, hide_index=True)
+
+    # --- Signal History ---
+    st.header("Signal History")
+
+    all_history = load_all_signal_history()
+
+    if not all_history:
+        st.info("No signal history yet. Run the pipeline multiple times to build history.")
+    else:
+        # Build a DataFrame for charting: date x ticker with confidence values
+        hist_df = pd.DataFrame(all_history)
+        hist_df["date"] = pd.to_datetime(hist_df["date"])
+
+        # Pivot for line chart: each ticker is a column
+        pivot = hist_df.pivot_table(
+            index="date", columns="ticker", values="confidence", aggfunc="last"
+        )
+
+        st.line_chart(pivot)
+
+        # Signal change log — show recent changes
+        changes = []
+        for ticker in {h["ticker"] for h in all_history}:
+            ticker_hist = [h for h in all_history if h["ticker"] == ticker]
+            for i in range(1, len(ticker_hist)):
+                if ticker_hist[i]["signal"] != ticker_hist[i - 1]["signal"]:
+                    changes.append({
+                        "Date": ticker_hist[i]["date"],
+                        "Ticker": ticker,
+                        "From": (ticker_hist[i - 1]["signal"] or "—").upper(),
+                        "To": (ticker_hist[i]["signal"] or "—").upper(),
+                        "Confidence": f"{ticker_hist[i]['confidence']:.0%}" if ticker_hist[i]["confidence"] is not None else "—",
+                    })
+        if changes:
+            st.subheader("Signal Changes")
+            changes.sort(key=lambda x: x["Date"], reverse=True)
+            st.dataframe(pd.DataFrame(changes), use_container_width=True, hide_index=True)
 
     # --- Risk Report ---
     st.header("Portfolio Risk")
@@ -189,6 +298,10 @@ elif view == "Stock Detail" and selected_ticker:
     st.title(f"{detail['ticker']} — {detail['name']}")
     st.caption(f"{detail['layer']} | {tier_label}")
 
+    # Action button
+    if st.sidebar.button(f"Run Analysis for {selected_ticker}"):
+        _run_analysis([selected_ticker, "--orchestrate"], f"Analysis for {selected_ticker}")
+
     # Price info
     if detail["price"]:
         p = detail["price"]
@@ -248,6 +361,32 @@ elif view == "Stock Detail" and selected_ticker:
 
         st.caption(f"Report date: {synth['report_date']}")
 
+    # --- Signal Trend ---
+    st.header("Signal Trend")
+
+    signal_hist = load_signal_history(selected_ticker)
+
+    if not signal_hist:
+        st.info("No signal history yet for this ticker.")
+    else:
+        # Timeline table
+        trend_data = []
+        for entry in signal_hist:
+            trend_data.append({
+                "Date": entry["date"],
+                "Signal": (entry["signal"] or "—").upper(),
+                "Confidence": f"{entry['confidence']:.0%}" if entry["confidence"] is not None else "—",
+            })
+        st.dataframe(pd.DataFrame(trend_data), use_container_width=True, hide_index=True)
+
+        # Confidence trend chart
+        if len(signal_hist) > 1:
+            chart_df = pd.DataFrame(signal_hist)
+            chart_df["date"] = pd.to_datetime(chart_df["date"])
+            chart_df = chart_df.set_index("date")[["confidence"]].dropna()
+            if not chart_df.empty:
+                st.line_chart(chart_df)
+
     # --- Analyst Breakdown ---
     st.header("Analyst Reports")
 
@@ -256,8 +395,10 @@ elif view == "Stock Detail" and selected_ticker:
     else:
         for analyst in detail["analysts"]:
             agent_label = analyst["agent"].replace("_", " ").title()
+            signal_str = analyst['signal'].upper() if analyst['signal'] else "—"
+            conf_str = f"{analyst['confidence']:.0%}" if analyst['confidence'] is not None else "—"
             with st.expander(
-                f"{agent_label} — {analyst['signal'].upper()} ({analyst['confidence']:.0%})",
+                f"{agent_label} — {signal_str} ({conf_str})",
                 expanded=False,
             ):
                 st.write(f"**Thesis:** {analyst['thesis']}")

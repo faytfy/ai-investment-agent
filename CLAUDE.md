@@ -1,9 +1,9 @@
 # AI Investment Agent — Session Instructions
 
 ## Current State
-- **Phase:** 5a — Dashboard Layout (COMPLETE)
-- **Session:** 9 of 12
-- **Next Session:** 10 — Phase 5b (Dashboard: Interactivity)
+- **Phase:** 5b — Dashboard Interactivity (COMPLETE)
+- **Session:** 10 of 12
+- **Next Session:** 11 — Phase 6 (Automation & Alerts)
 
 ## Session Opening Protocol
 

@@ -422,3 +422,55 @@ Build:
 - Refresh button to reload data
 
 **Files to read at session start:** `CLAUDE.md`, `PROGRESS.md`, `DESIGN.md` (sections 4, 7, 9), `src/dashboard/app.py`, `src/dashboard/data_loader.py`, `src/db/operations.py`
+
+---
+
+## Session 10 — Phase 5b: Dashboard Interactivity
+
+### Status: COMPLETE
+
+### Built
+- `src/dashboard/data_loader.py` — Added `@st.cache_data(ttl=300)` to all loader functions, added `load_signal_history()` (per-ticker signal history, chronological order) and `load_all_signal_history()` (cross-portfolio signal history)
+- `src/dashboard/app.py` — Full interactivity overhaul:
+  - **Caching:** All data loaders cached with 5-min TTL
+  - **Refresh button:** Sidebar button clears `st.cache_data` and reruns
+  - **Filters:** Sidebar signal filter (bullish/neutral/bearish/no data) and tier filter (Tier 1/Tier 2/Watch Only) on Portfolio Overview
+  - **Signal history (Portfolio):** Line chart of confidence over time across all tickers, plus signal change log table
+  - **Signal trend (Stock Detail):** Per-ticker signal timeline table + confidence trend chart
+  - **Action buttons:** "Run Full Analysis" and "Run Risk Analysis" on Portfolio Overview, "Run Analysis for {ticker}" on Stock Detail — all via `subprocess.run()` with spinner, output capture, and error display
+- `tests/test_dashboard.py` — 40 tests (up from 26): added signal history tests (6), all-signal history tests (5), corrupted signal history test (1), price exception test (1), chronological ordering with limit test (1)
+
+### Key Decisions
+- **`@st.cache_data(ttl=300)`** — 5-minute TTL balances freshness with performance. Refresh button provides manual override.
+- **Subprocess for action buttons** — `subprocess.run()` with list args (no shell=True), 600s timeout, captured output. Args are hardcoded from WATCHLIST, not user input.
+- **Signal distribution uses unfiltered data** — Metric counts (bullish/neutral/bearish) always show the full portfolio, not filtered subset, so users can see the overall picture while filtering the table.
+- **`load_all_signal_history` delegates to `load_signal_history`** — Reuses the per-ticker function to avoid duplicating logic. Both cached independently.
+
+### Bugs Found & Fixed During Review
+1. **Analyst signal None crash** — `analyst['signal'].upper()` in expander title would crash if signal was None. Fixed by adding None guard with fallback to "—".
+2. **Unused `get_signal_color` import** — Imported in app.py but never used. Removed.
+3. **`AttributeError` not caught in signal history** — Corrupted report with JSON array (instead of object) raised `AttributeError` on `.get()`. Added to exception tuple.
+
+### Review Notes (not fixed, acceptable)
+- `get_risk_color` defined in data_loader.py but not currently used in app.py — kept for potential future use (e.g., colored badges)
+- Signal distribution metrics show unfiltered counts by design — matches the "at a glance" purpose
+- No integration test for subprocess execution — would require mocking the full agent pipeline
+
+### Deviations
+- None — on track with roadmap
+
+### Open Blockers
+- None
+
+### Testing Note
+- 292 total tests pass (all sessions), 6 E2E skipped without API key
+- 40 dashboard tests covering data loaders, signal history, corrupted data, edge cases
+
+### Next Session (Session 11 — Phase 6)
+**Scope:** Automation & Alerts
+- Build scheduler (APScheduler) for automated weekly analysis runs
+- Thesis-change alerts (detect when synthesis signal flips)
+- Earnings calendar integration
+- Notification mechanism (e.g., email or log-based alerts)
+
+**Files to read at session start:** `CLAUDE.md`, `PROGRESS.md`, `DESIGN.md` (sections 4, 7, 10), `src/agents/runner.py`, `src/data/models.py`, `src/dashboard/data_loader.py`
